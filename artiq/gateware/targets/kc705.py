@@ -75,6 +75,56 @@ _ams101_dac = [
      )
 ]
 
+ltc2000_pads = [
+    ("ltc2000", 0,
+        Subsignal("clk_p", Pins("HPC:LA07_P"), IOStandard("LVDS_25")),
+        Subsignal("clk_n", Pins("HPC:LA07_N"), IOStandard("LVDS_25")),
+        Subsignal("dcko_p", Pins("HPC:LA01_CC_P"), IOStandard("LVDS_25")),
+        Subsignal("dcko_n", Pins("HPC:LA01_CC_N"), IOStandard("LVDS_25")),
+        Subsignal("data_p", Pins(
+            "HPC:LA15_P HPC:LA16_P HPC:LA14_P",
+            "HPC:LA13_P HPC:LA11_P HPC:LA12_P",
+            "HPC:LA09_P HPC:LA10_P HPC:LA08_P",
+            "HPC:LA05_P HPC:LA04_P HPC:LA06_P",
+            "HPC:LA03_P HPC:LA02_P HPC:LA00_CC_P",
+            "HPC:CLK0_M2C_P"),
+            IOStandard("LVDS_25")),
+        Subsignal("data_n", Pins(
+            "HPC:LA15_N HPC:LA16_N HPC:LA14_N",
+            "HPC:LA13_N HPC:LA11_N HPC:LA12_N",
+            "HPC:LA09_N HPC:LA10_N HPC:LA08_N",
+            "HPC:LA05_N HPC:LA04_N HPC:LA06_N",
+            "HPC:LA03_N HPC:LA02_N HPC:LA00_CC_N",
+            "HPC:CLK0_M2C_N"),
+            IOStandard("LVDS_25")),
+        Subsignal("datb_p", Pins(
+            "HPC:LA32_P HPC:LA33_P HPC:LA30_P",
+            "HPC:LA31_P HPC:LA28_P HPC:LA29_P",
+            "HPC:LA24_P HPC:LA25_P HPC:LA26_P",
+            "HPC:LA27_P HPC:LA21_P HPC:LA22_P",
+            "HPC:LA23_P HPC:LA19_P HPC:LA20_P",
+            "HPC:LA17_CC_P"),
+            IOStandard("LVDS_25")),
+        Subsignal("datb_n", Pins(
+            "HPC:LA32_N HPC:LA33_N HPC:LA30_N",
+            "HPC:LA31_N HPC:LA28_N HPC:LA29_N",
+            "HPC:LA24_N HPC:LA25_N HPC:LA26_N",
+            "HPC:LA27_N HPC:LA21_N HPC:LA22_N",
+            "HPC:LA23_N HPC:LA19_N HPC:LA20_N",
+            "HPC:LA17_CC_N"),
+            IOStandard("LVDS_25"))
+    )
+]
+
+ltc2000_spi = [
+    ("ltc2000_spi", 0,
+        Subsignal("cs", Pins("HPC:HA21_N"), IOStandard("LVCMOS25")),
+        Subsignal("sck", Pins("HPC:HA17_CC_P"), IOStandard("LVCMOS25")),
+        Subsignal("sdi", Pins("HPC:HA17_CC_N"), IOStandard("LVCMOS25")),
+        Subsignal("sdo", Pins("HPC:HA21_P"), IOStandard("LVCMOS25"))
+    )
+]
+
 class _StandaloneBase(MiniSoC, AMPSoC):
     mem_map = {
         "cri_con":       0x10000000,
@@ -122,7 +172,7 @@ class _StandaloneBase(MiniSoC, AMPSoC):
                 i_I=cdr_clk_out.p, i_IB=cdr_clk_out.n,
                 o_O=cdr_clk,
                 p_CLKCM_CFG="TRUE",
-                p_CLKRCV_TRST="TRUE", 
+                p_CLKRCV_TRST="TRUE",
                 p_CLKSWING_CFG=3),
             Instance("BUFG", i_I=cdr_clk, o_O=cdr_clk_buf)
         ]
@@ -621,6 +671,45 @@ class _NIST_QC2_RTIO:
 
         self.add_rtio(rtio_channels)
 
+class _NIST_LTC_RTIO:
+    def __init__(self):
+        platform = self.platform
+
+        rtio_channels = []
+
+        for i in [2,3]:
+            phy = ttl_simple.Output(platform.request("user_led", i))
+            self.submodules += phy
+            rtio_channels.append(rtio.Channel.from_phy(phy))
+
+        platform.add_extension(ltc2000_pads)
+        platform.add_extension(ltc2000_spi)
+
+        self.dac_pads = platform.request("ltc2000")
+        platform.add_period_constraint(self.dac_pads.dcko_p, 1.66)
+
+        self.submodules.ltc2000 = Ltc2000phy(self.dac_pads)
+        self.submodules.dds = PolyphaseDDS(16,32,18)
+        self.comb += self.dds.ftw.eq(100000000)        # input frequency tuning word. 2400/2^32*FTW MHz
+        self.comb += self.dds.ptw.eq(0)               # input phase tuning word
+        self.comb += self.dds.clr.eq(0)               # input clear signal
+        self.comb += self.ltc2000.data_in.eq(self.dds.dout)
+
+        dac_spi = platform.request("ltc2000_spi", 0)
+        phy = spi2.SPIMaster(dac_spi)
+        self.submodules += phy
+        rtio_channels.append(rtio.Channel.from_phy(
+            phy, ififo_depth=4))
+
+        ### RESET SIGNAL FOR LTC2000
+        self.button = platform.request("user_btn_c")
+        self.comb += self.ltc2000.reset.eq(~self.button)
+
+        self.config["HAS_RTIO_LOG"] = None
+        self.config["RTIO_LOG_CHANNEL"] = len(rtio_channels)
+        rtio_channels.append(rtio.LogChannel())
+
+        self.add_rtio(rtio_channels)
 
 class NIST_CLOCK(_StandaloneBase, _NIST_CLOCK_RTIO):
     def __init__(self, **kwargs):
@@ -632,6 +721,11 @@ class NIST_QC2(_StandaloneBase, _NIST_QC2_RTIO):
     def __init__(self, **kwargs):
         _StandaloneBase.__init__(self, **kwargs)
         _NIST_QC2_RTIO.__init__(self)
+
+class NIST_LTC(_StandaloneBase, _NIST_LTC_RTIO):
+    def __init__(self, **kwargs):
+        _StandaloneBase.__init__(self, **kwargs)
+        _NIST_LTC_RTIO.__init__(self)
 
 
 class NIST_CLOCK_Master(_MasterBase, _NIST_CLOCK_RTIO):
@@ -659,7 +753,7 @@ class NIST_QC2_Satellite(_SatelliteBase, _NIST_QC2_RTIO):
 
 
 VARIANT_CLS = [
-    NIST_CLOCK, NIST_QC2,
+    NIST_CLOCK, NIST_QC2, NIST_LTC,
     NIST_CLOCK_Master, NIST_QC2_Master,
     NIST_CLOCK_Satellite, NIST_QC2_Satellite,
 ]

@@ -24,7 +24,7 @@ def _create_device(desc, device_mgr, argument_overrides):
     if ty == "local":
         module = importlib.import_module(desc["module"])
         device_class = getattr(module, desc["class"])
-        arguments = desc.get("arguments", {}) | argument_overrides
+        arguments = {**desc.get("arguments", {}), **argument_overrides}
         return device_class(device_mgr, **arguments)
     elif ty == "controller":
         if desc.get("best_effort", False):
