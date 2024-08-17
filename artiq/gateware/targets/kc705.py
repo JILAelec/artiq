@@ -16,6 +16,8 @@ from misoc.integration.builder import builder_args, builder_argdict
 
 from artiq.gateware.amp import AMPSoC
 from artiq.gateware import rtio, nist_clock, nist_qc2
+from artiq.gateware.ltc2000phy import Ltc2000phy
+from artiq.gateware.targets.ltc2000_ac701 import PolyphaseDDS
 from artiq.gateware.rtio.phy import ttl_simple, ttl_serdes_7series, dds, spi2
 from artiq.gateware.rtio.xilinx_clocking import fix_serdes_timing_path
 from artiq.gateware.drtio.transceiver import gtx_7series
@@ -118,10 +120,10 @@ ltc2000_pads = [
 
 ltc2000_spi = [
     ("ltc2000_spi", 0,
-        Subsignal("cs", Pins("HPC:HA21_N"), IOStandard("LVCMOS25")),
-        Subsignal("sck", Pins("HPC:HA17_CC_P"), IOStandard("LVCMOS25")),
-        Subsignal("sdi", Pins("HPC:HA17_CC_N"), IOStandard("LVCMOS25")),
-        Subsignal("sdo", Pins("HPC:HA21_P"), IOStandard("LVCMOS25"))
+        Subsignal("cs_n", Pins("HPC:HA21_N"), IOStandard("LVCMOS25")),
+        Subsignal("clk", Pins("HPC:HA17_CC_P"), IOStandard("LVCMOS25")),
+        Subsignal("mosi", Pins("HPC:HA17_CC_N"), IOStandard("LVCMOS25")),
+        Subsignal("miso", Pins("HPC:HA21_P"), IOStandard("LVCMOS25"))
     )
 ]
 
