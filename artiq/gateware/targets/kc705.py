@@ -685,6 +685,7 @@ class _NIST_LTC_RTIO(Module):
 
         # LTC2000 and DDS submodule
         self.submodules.ltc2000_dds = LTC2000DDSModule(self.platform, ltc2000_pads)
+        self.csr_devices.append("ltc2000_dds")
 
         # SPI setup
         platform.add_extension(ltc2000_spi)

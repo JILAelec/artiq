@@ -13,6 +13,7 @@ class LTC2000Experiment(EnvExperiment):
         self.setattr_device("core")
         self.setattr_device("spi_ltc")
         self.setattr_device("ttl1")
+        self.setattr_device("ltc2000_dds")
         self.register_values = {}
 
     def create_command(self, address, data, is_read):
@@ -66,6 +67,19 @@ class LTC2000Experiment(EnvExperiment):
         self.register_values[0x04] = self.read_ltc2000(0x04) & 0xFF
         delay(1*ms)
 
+        # Configure FTW and PTW
+        self.ltc2000_dds.clr.write(1)
+        ftw = frequency_to_ftw(200.0)  # MHz
+        self.ltc2000_dds.ftw.write(ftw)
+        self.ltc2000_dds.ptw.write(0x0)
+        delay(1*ms)
+
+        # Reset the LTC2000
+        self.ltc2000_dds.reset()
+        delay(1*ms)
+
+        self.ltc2000_dds.clr.write(0)
+
     @kernel
     def run(self):
         self.core.reset()
@@ -79,6 +93,20 @@ class LTC2000Experiment(EnvExperiment):
             delay(50*ms)
 
         self.ttl1.off()
+
+    def frequency_to_ftw(desired_frequency_mhz, reference_clock_mhz=2400):
+        """
+        Convert a desired frequency in MHz to the Frequency Tuning Word (FTW).
+
+        Parameters:
+        desired_frequency_mhz (float): The desired frequency in MHz.
+        reference_clock_mhz (float): The reference clock frequency in MHz.
+
+        Returns:
+        int: The Frequency Tuning Word (FTW).
+        """
+        ftw = (desired_frequency_mhz / reference_clock_mhz) * (2**32)
+        return int(round(ftw))
 
     def analyze(self):
         print("LTC2000 Register Values:")

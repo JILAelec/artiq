@@ -33,10 +33,10 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.rtio_channels = []
 
         # Define CSRs
-        self.ftw_csr = CSRStorage(32, name="ftw")  # Frequency Tuning Word
-        self.ptw_csr = CSRStorage(32, name="ptw")  # Phase Tuning Word
-        self.clr_csr = CSRStorage(1, name="clr")   # Clear Signal
-        self.reset_csr = CSRStorage(1, name="ltc2000_reset")  # Reset Signal
+        self.ftw = CSRStorage(32, name="ftw")  # Frequency Tuning Word
+        self.ptw = CSRStorage(32, name="ptw")  # Phase Tuning Word
+        self.clr = CSRStorage(1, name="clr")   # Clear Signal
+        self.reset = CSRStorage(1, name="ltc2000_reset")  # Reset Signal
 
         # LTC2000 setup
         platform.add_extension(ltc2000_pads)
@@ -47,18 +47,18 @@ class LTC2000DDSModule(Module, AutoCSR):
         # DDS setup
         self.submodules.dds = PolyphaseDDS(16, 32, 18)
         self.comb += [
-            self.dds.ftw.eq(self.ftw_csr.storage),  # input frequency tuning word
-            self.dds.ptw.eq(self.ptw_csr.storage),  # phase tuning word
-            self.dds.clr.eq(self.clr_csr.storage),  # clear signal
+            self.dds.ftw.eq(self.ftw.storage),  # input frequency tuning word
+            self.dds.ptw.eq(self.ptw.storage),  # phase tuning word
+            self.dds.clr.eq(self.clr.storage),  # clear signal
             self.ltc2000.data_in.eq(self.dds.dout)
         ]
 
         # Reset signal with CSR and button
         self.button = platform.request("user_btn_c")
-        self.comb += self.ltc2000.reset.eq(self.reset_csr.storage | ~self.button)
+        self.comb += self.ltc2000.reset.eq(self.reset.storage | ~self.button)
 
     @kernel
     def reset(self):
-        self.reset_csr.write(1)
+        self.reset.write(1)
         delay(1*us)  # Adjust the delay as needed
-        self.reset_csr.write(0)
+        self.reset.write(0)
