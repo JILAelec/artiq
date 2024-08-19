@@ -75,4 +75,15 @@ device_db = {
         "class": "SPIMaster",
         "arguments": {"channel": 2}
     },
+
+    # LTC2000 DAC
+    "ltc2000": {
+        "type": "local",
+        "module": "artiq.coredevice.ltc",
+        "class": "LTC2000",
+        "arguments": {
+            "spi_device": "spi_ltc",
+            "csr_base": 0xe0008800
+        }
+    },
 }
