@@ -16,8 +16,7 @@ from misoc.integration.builder import builder_args, builder_argdict
 
 from artiq.gateware.amp import AMPSoC
 from artiq.gateware import rtio, nist_clock, nist_qc2
-from artiq.gateware.ltc2000phy import Ltc2000phy
-from artiq.gateware.targets.ltc2000_ac701 import PolyphaseDDS
+from artiq.gateware.targets.ltc2000 import LTC2000DDSModule
 from artiq.gateware.rtio.phy import ttl_simple, ttl_serdes_7series, dds, spi2
 from artiq.gateware.rtio.xilinx_clocking import fix_serdes_timing_path
 from artiq.gateware.drtio.transceiver import gtx_7series
@@ -673,40 +672,32 @@ class _NIST_QC2_RTIO:
 
         self.add_rtio(rtio_channels)
 
-class _NIST_LTC_RTIO:
+class _NIST_LTC_RTIO(Module):
     def __init__(self):
         platform = self.platform
-
         rtio_channels = []
 
-        for i in [2,3]:
-            phy = ttl_simple.Output(platform.request("user_led", i))
+        # LED setup
+        for i in [2, 3]:
+            phy = ttl_simple.Output(self.platform.request("user_led", i))
             self.submodules += phy
             rtio_channels.append(rtio.Channel.from_phy(phy))
 
-        platform.add_extension(ltc2000_pads)
+        # LTC2000 and DDS submodule
+        self.submodules.ltc2000_dds = LTC2000DDSModule(self.platform, ltc2000_pads)
+        self.csr_devices.append("ltc2000_dds")
+
+        # SPI setup
         platform.add_extension(ltc2000_spi)
-
-        self.dac_pads = platform.request("ltc2000")
-        platform.add_period_constraint(self.dac_pads.dcko_p, 1.66)
-
-        self.submodules.ltc2000 = Ltc2000phy(self.dac_pads)
-        self.submodules.dds = PolyphaseDDS(16,32,18)
-        self.comb += self.dds.ftw.eq(100000000)        # input frequency tuning word. 2400/2^32*FTW MHz
-        self.comb += self.dds.ptw.eq(0)               # input phase tuning word
-        self.comb += self.dds.clr.eq(0)               # input clear signal
-        self.comb += self.ltc2000.data_in.eq(self.dds.dout)
-
         dac_spi = platform.request("ltc2000_spi", 0)
         phy = spi2.SPIMaster(dac_spi)
         self.submodules += phy
-        rtio_channels.append(rtio.Channel.from_phy(
-            phy, ififo_depth=4))
+        rtio_channels.append(rtio.Channel.from_phy(phy, ififo_depth=4))
 
-        ### RESET SIGNAL FOR LTC2000
-        self.button = platform.request("user_btn_c")
-        self.comb += self.ltc2000.reset.eq(~self.button)
+        # Add RTIO channel for LTC2000
+        rtio_channels.append(rtio.Channel.from_phy(self.ltc2000_dds.rtio_phy))
 
+        # RTIO log setup
         self.config["HAS_RTIO_LOG"] = None
         self.config["RTIO_LOG_CHANNEL"] = len(rtio_channels)
         rtio_channels.append(rtio.LogChannel())
