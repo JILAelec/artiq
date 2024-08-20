@@ -38,6 +38,27 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.clr = CSRStorage(1, name="clr")   # Clear Signal
         self.reset = CSRStorage(1, name="ltc2000_reset")  # Reset Signal
 
+        # Add RTIO PHY
+        self.rtio_phy = rtio.phy.SimpleInterface(
+            rtio.channel.Interface(
+                rtio.channel.OInterface(data_width=32, address_width=4),
+                rtio.channel.IInterface(data_width=32, timestamped=False)
+            )
+        )
+
+        # RTIO to CSR bridge
+        self.sync += [
+            If(self.rtio_phy.o.stb,
+                Case(self.rtio_phy.o.address[0:2], {
+                    0: self.ftw.storage.eq(self.rtio_phy.o.data),
+                    1: self.pow.storage.eq(self.rtio_phy.o.data),
+                    2: self.asf.storage.eq(self.rtio_phy.o.data),
+                    3: self.rtio_phy.i.data.eq(self.status.status),
+                }),
+                self.rtio_phy.i.stb.eq(1)
+            )
+        ]
+
         # LTC2000 setup
         platform.add_extension(ltc2000_pads)
         self.dac_pads = platform.request("ltc2000")

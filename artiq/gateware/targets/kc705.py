@@ -694,6 +694,9 @@ class _NIST_LTC_RTIO(Module):
         self.submodules += phy
         rtio_channels.append(rtio.Channel.from_phy(phy, ififo_depth=4))
 
+        # Add RTIO channel for LTC2000
+        rtio_channels.append(rtio.Channel.from_phy(self.ltc2000_dds.rtio_phy))
+
         # RTIO log setup
         self.config["HAS_RTIO_LOG"] = None
         self.config["RTIO_LOG_CHANNEL"] = len(rtio_channels)

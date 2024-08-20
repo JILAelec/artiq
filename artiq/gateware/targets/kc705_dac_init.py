@@ -1,25 +1,37 @@
 from artiq.experiment import *
+from artiq.coredevice.ltc2000 import LTC2000
 
-class LTC2000Experiment(EnvExperiment):
+class DAC_Init(EnvExperiment):
     def build(self):
         self.setattr_device("core")
-        self.setattr_device("ttl1")
-        self.setattr_device("ltc2000")
+        self.setattr_device("ttl0")
+        self.setattr_device("spi_ltc")
+
+    def prepare(self):
+        self.ltc2000 = LTC2000(self, "spi_ltc")
+        self.frequency = 200e6  # 200 MHz
+        self.amplitude = 0.9  # 90% of full scale
+        self.phase = 0  # Starting phase
 
     @kernel
     def run(self):
         self.core.reset()
-        self.ttl1.on()
+        self.ttl0.output()
 
-        # Initialize and configure the LTC2000
+        # Initialize the LTC2000
         self.ltc2000.initialize()
-        self.ltc2000.configure(frequency_mhz=200.0)  # Starting at 200 MHz
 
-        # Example of changing frequency
-        for i in range(10):
-            frequency_mhz = 100.0 + i * 10  # 100MHz to 190MHz
-            ftw = self.ltc2000.frequency_to_ftw(frequency_mhz)
-            self.ltc2000.ftw.write(ftw)
-            delay(50*ms)
+        # Configure the LTC2000
+        self.ltc2000.configure(self.frequency, self.amplitude, self.phase)
 
-        self.ttl1.off()
+        # Generate signal for 100 ms
+        delay(100*ms)
+
+        # Power down the LTC2000 after use
+        self.ltc2000.power_down()
+
+    def analyze(self):
+        print("DAC Initialization completed")
+        print(f"Frequency: {self.frequency/1e6} MHz")
+        print(f"Amplitude: {self.amplitude*100}% of full scale")
+        print(f"Phase: {self.phase} degrees")
