@@ -1,7 +1,8 @@
+from artiq.gateware import rtio
 from migen import *
 from misoc.interconnect.csr import *
-from artiq.language.core import kernel, delay
 from artiq.gateware.ltc2000phy import Ltc2000phy
+from artiq.gateware.rtio import rtlink
 from misoc.cores.duc import PhasedAccu, CosSinGen
 
 class PolyphaseDDS(Module):
@@ -46,24 +47,27 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.reset = CSRStorage(1, name="ltc2000_reset")  # Reset Signal
 
         # Add RTIO PHY
-        self.rtio_phy = rtio.phy.SimpleInterface(
-            rtio.channel.Interface(
-                rtio.channel.OInterface(data_width=32, address_width=4),
-                rtio.channel.IInterface(data_width=32, timestamped=False)
-            )
+        self.rtlink = rtlink.Interface(
+            rtlink.OInterface(
+                data_width=32,
+                address_width=4,
+                enable_replace=False),
+            rtlink.IInterface(
+                data_width=32,
+                timestamped=False)
         )
 
         # RTIO to CSR bridge
         self.sync += [
-            If(self.rtio_phy.o.stb,
-                Case(self.rtio_phy.o.address[0:2], {
-                    self.FTW_ADDR: self.ftw.storage.eq(self.rtio_phy.o.data),
-                    self.ATW_ADDR: self.atw.storage.eq(self.rtio_phy.o.data),
-                    self.PTW_ADDR: self.ptw.storage.eq(self.rtio_phy.o.data),
-                    self.CLR_ADDR: self.clr.storage.eq(self.rtio_phy.o.data),
-                    self.RST_ADDR: self.reset.storage.eq(self.rtio_phy.o.data)
+            If(self.rtlink.o.stb,
+                Case(self.rtlink.o.address[0:2], {
+                    self.FTW_ADDR: self.ftw.storage_full.eq(self.rtlink.o.data),
+                    self.ATW_ADDR: self.atw.storage_full.eq(self.rtlink.o.data),
+                    self.PTW_ADDR: self.ptw.storage_full.eq(self.rtlink.o.data),
+                    self.CLR_ADDR: self.clr.storage_full.eq(self.rtlink.o.data),
+                    self.RST_ADDR: self.reset.storage_full.eq(self.rtlink.o.data)
                 }),
-                self.rtio_phy.i.stb.eq(1)
+                self.rtlink.i.stb.eq(1)
             )
         ]
 
@@ -75,19 +79,13 @@ class LTC2000DDSModule(Module, AutoCSR):
 
         # DDS setup
         self.submodules.dds = PolyphaseDDS(16, 32, 18)
-        self.comb += [
-            self.dds.ftw.eq(self.ftw.storage),  # input frequency tuning word
-            self.dds.ptw.eq(self.ptw.storage),  # phase tuning word
-            self.dds.clr.eq(self.clr.storage),  # clear signal
+        self.sync += [
+            self.dds.ftw.eq(self.ftw.storage_full),  # input frequency tuning word
+            self.dds.ptw.eq(self.ptw.storage_full),  # phase tuning word
+            self.dds.clr.eq(self.clr.storage_full),  # clear signal
             self.ltc2000.data_in.eq(self.dds.dout)
         ]
 
         # Reset signal with CSR and button
         self.button = platform.request("user_btn_c")
-        self.comb += self.ltc2000.reset.eq(self.reset.storage | ~self.button)
-
-    @kernel
-    def reset(self):
-        self.reset.write(1)
-        delay(1*us)  # Adjust the delay as needed
-        self.reset.write(0)
+        self.comb += self.ltc2000.reset.eq(self.reset.storage_full | ~self.button)
