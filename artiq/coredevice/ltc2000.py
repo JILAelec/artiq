@@ -2,6 +2,8 @@ from artiq.coredevice.rtio import rtio_output
 from artiq.experiment import *
 from artiq.coredevice import spi2
 from artiq.gateware.targets.ltc2000 import LTC2000DDSModule as DDS
+from artiq.language.core import kernel, delay
+from artiq.language.units import us  # Import microseconds unit
 
 class LTC2000:
     def __init__(self, dmgr, channel, spi_device):
@@ -12,14 +14,14 @@ class LTC2000:
     def init(self):
         # Combine configuration flags into a single value
         config = (0 * spi2.SPI_OFFLINE |
-                  0 * spi2.SPI_END |
+                  1 * spi2.SPI_END |
                   0 * spi2.SPI_INPUT |
                   0 * spi2.SPI_CS_POLARITY |
                   0 * spi2.SPI_CLK_POLARITY |
                   0 * spi2.SPI_CLK_PHASE |
                   0 * spi2.SPI_LSB_FIRST |
                   0 * spi2.SPI_HALF_DUPLEX)
-        self.spi.set_config_mu(config, 16, 32, 0)
+        self.spi.set_config_mu(config, 16, 32, 1)
 
     @kernel
     def write(self, addr, data):
@@ -36,6 +38,8 @@ class LTC2000:
 
         # Write the data to the CSR via RTIO
         rtio_output(address, data)
+        delay(1 * us)
+
 
     @kernel
     def set_frequency(self, freq):
