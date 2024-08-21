@@ -1,5 +1,6 @@
 from artiq.experiment import *
 from artiq.coredevice import spi2
+from artiq.gateware.targets.ltc2000 import LTC2000DDSModule as DDS
 
 class LTC2000:
     kernel_invariants = {"core", "spi"}
@@ -31,10 +32,17 @@ class LTC2000:
         return self.spi.write((1 << 15) | ((addr & 0x7F) << 8)) & 0xFF
 
     @kernel
+    def write_rtio(self, csr_address, data):
+        # Combine the bus channel and CSR address into a single address
+        address = (self.bus_channel << 8) | csr_address
+
+        # Write the data to the CSR via RTIO
+        rtio_output(address, data)
+
+    @kernel
     def set_frequency(self, freq):
         ftw = self.frequency_to_ftw(freq)
-        self.write(0x0E, (ftw >> 16) & 0xFFFF)
-        self.write(0x0F, ftw & 0xFFFF)
+        self.write_rtio(DDS.ftw_addr,ftw)
 
     @portable
     def frequency_to_ftw(self, freq):
@@ -43,12 +51,17 @@ class LTC2000:
     @kernel
     def set_amplitude(self, amplitude):
         amp = round(amplitude * 0x3FFF)
-        self.write(0x09, amp & 0xFFFF)
+        self.write_rtio(DDS.atw_addr,amp)
 
     @kernel
     def set_phase(self, phase):
         phase_word = round((phase % 360) / 360 * 0xFFFF)
-        self.write(0x10, phase_word & 0xFFFF)
+        self.write_rtio(DDS.ptw_addr,phase_word)
+
+setclr
+setrst
+we need one more write to the DAC to make it go - look up what that was
+check on the power_up - is that acutally needed?
 
     @kernel
     def power_down(self):

@@ -32,8 +32,15 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.platform = platform
         self.rtio_channels = []
 
+        self.ftw_addr = 0
+        self.atw_addr = 1
+        self.ptw_addr = 2
+        self.clr_addr = 3
+        self.rst_addr = 4
+
         # Define CSRs
         self.ftw = CSRStorage(32, name="ftw")  # Frequency Tuning Word
+        self.atw = CSRStorage(32, name="atw")  # Amplitude Tuning Word
         self.ptw = CSRStorage(32, name="ptw")  # Phase Tuning Word
         self.clr = CSRStorage(1, name="clr")   # Clear Signal
         self.reset = CSRStorage(1, name="ltc2000_reset")  # Reset Signal
@@ -50,10 +57,11 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.sync += [
             If(self.rtio_phy.o.stb,
                 Case(self.rtio_phy.o.address[0:2], {
-                    0: self.ftw.storage.eq(self.rtio_phy.o.data),
-                    1: self.pow.storage.eq(self.rtio_phy.o.data),
-                    2: self.asf.storage.eq(self.rtio_phy.o.data),
-                    3: self.rtio_phy.i.data.eq(self.status.status),
+                    self.ftw_addr: self.ftw.storage.eq(self.rtio_phy.o.data),
+                    self.atw_addr: self.atw.storage.eq(self.rtio_phy.o.data),
+                    self.ptw_addr: self.ptw.storage.eq(self.rtio_phy.o.data),
+                    self.clr_addr: self.clr.storage.eq(self.rtio_phy.o.data),
+                    self.rst_addr: self.reset.storage.eq(self.rtio_phy.o.data
                 }),
                 self.rtio_phy.i.stb.eq(1)
             )

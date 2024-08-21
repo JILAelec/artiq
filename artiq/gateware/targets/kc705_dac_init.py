@@ -23,15 +23,3 @@ class DAC_Init(EnvExperiment):
 
         # Configure the LTC2000
         self.ltc2000.configure(self.frequency, self.amplitude, self.phase)
-
-        # Generate signal for 100 ms
-        delay(100*ms)
-
-        # Power down the LTC2000 after use
-        self.ltc2000.power_down()
-
-    def analyze(self):
-        print("DAC Initialization completed")
-        print(f"Frequency: {self.frequency/1e6} MHz")
-        print(f"Amplitude: {self.amplitude*100}% of full scale")
-        print(f"Phase: {self.phase} degrees")

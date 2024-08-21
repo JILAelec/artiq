@@ -71,8 +71,8 @@ device_db = {
     # LTC2000 driver
     "ltc2000": {
         "type": "local",
-        "module": "artiq.coredevice.ltc",
-        "class": "LTC2000Driver",
+        "module": "artiq.coredevice.ltc2000",
+        "class": "LTC2000",
         "arguments": {
             "spi_device": "spi_ltc",
             "channel": 3,
