@@ -1,35 +1,33 @@
+from artiq.coredevice.rtio import rtio_output
 from artiq.experiment import *
 from artiq.coredevice import spi2
 from artiq.gateware.targets.ltc2000 import LTC2000DDSModule as DDS
 
 class LTC2000:
-    kernel_invariants = {"core", "spi"}
-
-    def __init__(self, dmgr, spi_device):
-        self.core = dmgr.get_device("core")
-        self.spi = dmgr.get_device(spi_device)
+    def __init__(self, dmgr, channel, spi_device):
+        self.spi = dmgr.get(spi_device)
+        self.bus_channel = channel
 
     @kernel
     def init(self):
-        self.core.break_realtime()
         # Combine configuration flags into a single value
         config = (0 * spi2.SPI_OFFLINE |
                   0 * spi2.SPI_END |
                   0 * spi2.SPI_INPUT |
-                  1 * spi2.SPI_CS_POLARITY |  # Active-low chip select
+                  0 * spi2.SPI_CS_POLARITY |
                   0 * spi2.SPI_CLK_POLARITY |
                   0 * spi2.SPI_CLK_PHASE |
                   0 * spi2.SPI_LSB_FIRST |
                   0 * spi2.SPI_HALF_DUPLEX)
-        self.spi.set_config_mu(config, 16, 4, 0)
+        self.spi.set_config_mu(config, 16, 32, 0)
 
     @kernel
     def write(self, addr, data):
-        self.spi.write(((addr & 0x7F) << 8) | (data & 0xFF))
+        self.spi.write(((addr & 0x7F) << 24) | ((data & 0xFF) << 16))
 
     @kernel
     def read(self, addr):
-        return self.spi.write((1 << 15) | ((addr & 0x7F) << 8)) & 0xFF
+        return self.spi.write((1 << 31) | ((addr & 0x7F) << 24)) & 0xFF000000
 
     @kernel
     def write_rtio(self, csr_address, data):
@@ -42,7 +40,7 @@ class LTC2000:
     @kernel
     def set_frequency(self, freq):
         ftw = self.frequency_to_ftw(freq)
-        self.write_rtio(DDS.ftw_addr,ftw)
+        self.write_rtio(DDS.FTW_ADDR, ftw)
 
     @portable
     def frequency_to_ftw(self, freq):
@@ -51,26 +49,17 @@ class LTC2000:
     @kernel
     def set_amplitude(self, amplitude):
         amp = round(amplitude * 0x3FFF)
-        self.write_rtio(DDS.atw_addr,amp)
+        self.write_rtio(DDS.ATW_ADDR, amp)
 
     @kernel
     def set_phase(self, phase):
         phase_word = round((phase % 360) / 360 * 0xFFFF)
-        self.write_rtio(DDS.ptw_addr,phase_word)
+        self.write_rtio(DDS.PTW_ADDR, phase_word)
 
-setclr
-setrst
-we need one more write to the DAC to make it go - look up what that was
-check on the power_up - is that acutally needed?
-
-    @kernel
-    def power_down(self):
-        self.write(0x01, 0x10)
-
-    @kernel
-    def power_up(self):
-        self.write(0x01, 0x00)
-
+# setclr
+# setrst
+# we need one more write to the DAC to make it go - look up what that was
+# check on the power_up - is that acutally needed?
     @kernel
     def initialize(self):
         self.init()
@@ -91,4 +80,3 @@ check on the power_up - is that acutally needed?
         self.set_frequency(frequency)
         self.set_amplitude(amplitude)
         self.set_phase(phase)
-        self.power_up()

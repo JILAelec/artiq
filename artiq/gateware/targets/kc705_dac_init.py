@@ -6,9 +6,10 @@ class DAC_Init(EnvExperiment):
         self.setattr_device("core")
         self.setattr_device("ttl0")
         self.setattr_device("spi_ltc")
+        self.setattr_device("ltc2000")
 
     def prepare(self):
-        self.ltc2000 = LTC2000(self, "spi_ltc")
+        self.ltc2000 = self.get_device("ltc2000")
         self.frequency = 200e6  # 200 MHz
         self.amplitude = 0.9  # 90% of full scale
         self.phase = 0  # Starting phase

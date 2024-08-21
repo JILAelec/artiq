@@ -28,15 +28,15 @@ class PolyphaseDDS(Module):
             self.comb += self.dout[idx*16:(idx+1)*16].eq(dds.y)
 
 class LTC2000DDSModule(Module, AutoCSR):
+    FTW_ADDR = 0
+    ATW_ADDR = 1
+    PTW_ADDR = 2
+    CLR_ADDR = 3
+    RST_ADDR = 4
+
     def __init__(self, platform, ltc2000_pads):
         self.platform = platform
         self.rtio_channels = []
-
-        self.ftw_addr = 0
-        self.atw_addr = 1
-        self.ptw_addr = 2
-        self.clr_addr = 3
-        self.rst_addr = 4
 
         # Define CSRs
         self.ftw = CSRStorage(32, name="ftw")  # Frequency Tuning Word
@@ -57,11 +57,11 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.sync += [
             If(self.rtio_phy.o.stb,
                 Case(self.rtio_phy.o.address[0:2], {
-                    self.ftw_addr: self.ftw.storage.eq(self.rtio_phy.o.data),
-                    self.atw_addr: self.atw.storage.eq(self.rtio_phy.o.data),
-                    self.ptw_addr: self.ptw.storage.eq(self.rtio_phy.o.data),
-                    self.clr_addr: self.clr.storage.eq(self.rtio_phy.o.data),
-                    self.rst_addr: self.reset.storage.eq(self.rtio_phy.o.data
+                    self.FTW_ADDR: self.ftw.storage.eq(self.rtio_phy.o.data),
+                    self.ATW_ADDR: self.atw.storage.eq(self.rtio_phy.o.data),
+                    self.PTW_ADDR: self.ptw.storage.eq(self.rtio_phy.o.data),
+                    self.CLR_ADDR: self.clr.storage.eq(self.rtio_phy.o.data),
+                    self.RST_ADDR: self.reset.storage.eq(self.rtio_phy.o.data)
                 }),
                 self.rtio_phy.i.stb.eq(1)
             )

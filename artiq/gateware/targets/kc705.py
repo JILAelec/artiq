@@ -122,7 +122,7 @@ ltc2000_spi = [
         Subsignal("cs_n", Pins("HPC:HA21_N"), IOStandard("LVCMOS25")),
         Subsignal("clk", Pins("HPC:HA17_CC_P"), IOStandard("LVCMOS25")),
         Subsignal("mosi", Pins("HPC:HA17_CC_N"), IOStandard("LVCMOS25")),
-        Subsignal("miso", Pins("HPC:HA21_P"), IOStandard("LVCMOS25"))
+        Subsignal("miso", Pins("HPC:HA21_P"), IOStandard("LVCMOS25"), Misc("PULLUP=TRUE"))
     )
 ]
 

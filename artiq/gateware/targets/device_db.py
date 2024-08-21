@@ -74,8 +74,8 @@ device_db = {
         "module": "artiq.coredevice.ltc2000",
         "class": "LTC2000",
         "arguments": {
-            "spi_device": "spi_ltc",
             "channel": 3,
+            "spi_device": "spi_ltc"
         }
     },
 
