@@ -88,4 +88,4 @@ class LTC2000DDSModule(Module, AutoCSR):
 
         # Reset signal with CSR and button
         self.button = platform.request("user_btn_c")
-        self.comb += self.ltc2000.reset.eq(self.reset.storage_full | ~self.button)
+        self.comb += self.ltc2000.reset.eq(self.reset.storage_full | self.button)
