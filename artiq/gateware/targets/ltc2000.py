@@ -40,11 +40,11 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.rtio_channels = []
 
         # Define CSRs
-        self.ftw = CSRStorage(32, name="ftw")  # Frequency Tuning Word
-        self.atw = CSRStorage(32, name="atw")  # Amplitude Tuning Word
-        self.ptw = CSRStorage(32, name="ptw")  # Phase Tuning Word
-        self.clr = CSRStorage(1, name="clr")   # Clear Signal
-        self.reset = CSRStorage(1, name="ltc2000_reset")  # Reset Signal
+        self.ftw = CSRStorage(32, reset=0x05F5E100, name="ftw")  # Frequency Tuning Word - 2400/2^32*FTW MHz -- 55.88 MHz
+        self.atw = CSRStorage(32, reset=0x00000000, name="atw")  # Amplitude Tuning Word
+        self.ptw = CSRStorage(32, reset=0x00000000, name="ptw")  # Phase Tuning Word
+        self.clr = CSRStorage(1, reset=0x0, name="clr")          # Clear Signal
+        self.reset = CSRStorage(1, reset=0x0, name="ltc2000_reset")  # Reset Signal
 
         # Add RTIO PHY
         self.rtlink = rtlink.Interface(
