@@ -40,7 +40,6 @@ class LTC2000:
         rtio_output(address, data)
         delay(1 * us)
 
-
     @kernel
     def set_frequency(self, freq):
         ftw = self.frequency_to_ftw(freq)
@@ -60,10 +59,16 @@ class LTC2000:
         phase_word = round((phase % 360) / 360 * 0xFFFF)
         self.write_rtio(DDS.PTW_ADDR, phase_word)
 
-# setclr
-# setrst
-# we need one more write to the DAC to make it go - look up what that was
-# check on the power_up - is that acutally needed?
+    @kernel
+    def clear(self, value: TInt32):
+        self.write_rtio(DDS.CLR_ADDR, value)
+
+    @kernel
+    def reset(self):
+        self.write_rtio(DDS.RST_ADDR, 1)
+        delay(1 * us)
+        self.write_rtio(DDS.RST_ADDR, 0)
+
     @kernel
     def initialize(self):
         self.init()
@@ -84,3 +89,5 @@ class LTC2000:
         self.set_frequency(frequency)
         self.set_amplitude(amplitude)
         self.set_phase(phase)
+        self.clear(0)
+        self.reset()
