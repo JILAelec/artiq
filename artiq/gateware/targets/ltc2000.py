@@ -57,17 +57,27 @@ class LTC2000DDSModule(Module, AutoCSR):
                 timestamped=False)
         )
 
+        # Define previous_data and previous_address signals
+        previous_data = Signal.like(self.rtlink.o.data)
+        previous_address = Signal.like(self.rtlink.o.address)
+
         # RTIO to CSR bridge
         self.sync += [
             If(self.rtlink.o.stb,
-                Case(self.rtlink.o.address[0:2], {
-                    self.FTW_ADDR: self.ftw.storage_full.eq(self.rtlink.o.data),
-                    self.ATW_ADDR: self.atw.storage_full.eq(self.rtlink.o.data),
-                    self.PTW_ADDR: self.ptw.storage_full.eq(self.rtlink.o.data),
-                    self.CLR_ADDR: self.clr.storage_full.eq(self.rtlink.o.data),
-                    self.RST_ADDR: self.reset.storage_full.eq(self.rtlink.o.data)
-                }),
-                self.rtlink.i.stb.eq(1)
+                # Check if data or address has changed
+                If((self.rtlink.o.data != previous_data) | (self.rtlink.o.address != previous_address),
+                    Case(self.rtlink.o.address[0:2], {
+                        self.FTW_ADDR: self.ftw.storage_full.eq(self.rtlink.o.data),
+                        self.ATW_ADDR: self.atw.storage_full.eq(self.rtlink.o.data),
+                        self.PTW_ADDR: self.ptw.storage_full.eq(self.rtlink.o.data),
+                        self.CLR_ADDR: self.clr.storage_full.eq(self.rtlink.o.data),
+                        self.RST_ADDR: self.reset.storage_full.eq(self.rtlink.o.data)
+                    }),
+                    self.rtlink.i.stb.eq(1)
+                ),
+                # Update previous_data and previous_address with the current values
+                previous_data.eq(self.rtlink.o.data),
+                previous_address.eq(self.rtlink.o.address)
             )
         ]
 

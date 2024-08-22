@@ -60,14 +60,12 @@ class LTC2000:
         self.write_rtio(DDS.PTW_ADDR, phase_word)
 
     @kernel
-    def clear(self, value: TInt32):
+    def set_clear(self, value: TInt32):
         self.write_rtio(DDS.CLR_ADDR, value)
 
     @kernel
-    def reset(self):
-        self.write_rtio(DDS.RST_ADDR, 1)
-        delay(1 * us)
-        self.write_rtio(DDS.RST_ADDR, 0)
+    def set_reset(self, value: TInt32):
+        self.write_rtio(DDS.RST_ADDR, value)
 
     @kernel
     def initialize(self):
@@ -89,5 +87,5 @@ class LTC2000:
         self.set_frequency(frequency)
         self.set_amplitude(amplitude)
         self.set_phase(phase)
-        self.clear(0)
-        self.reset()
+        #self.clear(0)
+        #self.reset()
