@@ -12,14 +12,11 @@ class DAC_Init(EnvExperiment):
     @kernel
     def run(self):
         self.core.reset()
-
-        spi_modes = [(0,0), (0,1), (1,0), (1,1)]
-        #let's do only one mode for now
         spi_modes = [(0,0)]
         for cpol, cpha in spi_modes:
             print("Testing SPI Mode:", cpol, cpha)
             self.init_spi(cpol, cpha)
-            self.test_spi_write()
+            self.test_spi_operations()
             print("Reading all registers...")
             self.read_all_registers()
 
@@ -37,31 +34,29 @@ class DAC_Init(EnvExperiment):
     @kernel
     def spi_write(self, addr, data):
         self.core.break_realtime()
-        # Set CS line low (assert CS)
-        self.spi_ltc.set_config_mu(self.spi_config | SPI_END, 32, 256, 0b0001)
+        self.spi_ltc.set_config_mu(self.spi_config, 32, 256, 0b0001)
         self.spi_ltc.write((addr << 24) | (data << 16))
-        delay(200*us)  # Increased delay for stability
-        # Set CS line high (deassert CS)
+        delay(5*us)
         self.spi_ltc.set_config_mu(self.spi_config, 32, 256, 0b0000)
-        delay(2*ms)  # Increased delay for stability
         print("SPI Write - Addr:", addr, "Data:", data)
 
     @kernel
     def spi_read(self, addr):
         self.core.break_realtime()
-        # Set CS line low (assert CS)
-        self.spi_ltc.set_config_mu(self.spi_config | SPI_END | SPI_INPUT, 32, 256, 0b0001)
+        self.spi_ltc.set_config_mu(self.spi_config | SPI_INPUT, 32, 256, 0b0001)
         self.spi_ltc.write((1 << 31) | (addr << 24))
-        delay(200*us)  # Increased delay for stability
-        result = self.spi_ltc.read() & 0xFF
-        # Set CS line high (deassert CS)
+        delay(5*us)
+        result = self.spi_ltc.read()
         self.spi_ltc.set_config_mu(self.spi_config, 32, 256, 0b0000)
-        delay(2*ms)  # Increased delay for stability
-        print("SPI Read - Addr:", addr, "Result:", result)
-        return result
+        byte_3 = (result >> 24) & 0xFF
+        byte_2 = (result >> 16) & 0xFF
+        byte_1 = (result >> 8) & 0xFF
+        byte_0 = result & 0xFF
+        print("SPI Read - Addr:", addr, "Full Result:", result, "Bytes:", byte_3, byte_2, byte_1, byte_0)
+        return byte_2  # Return the second most significant byte
 
     @kernel
-    def test_spi_write(self):
+    def test_spi_operations(self):
         test_registers = [0x02, 0x04, 0x1E]
         test_values = [0x30, 0x0F, 0x01]
         for i in range(len(test_registers)):
@@ -70,8 +65,11 @@ class DAC_Init(EnvExperiment):
             old_value = self.spi_read(addr)
             print("Register", addr, "before write:", old_value)
             self.spi_write(addr, value)
+            delay(1*ms)
             new_value = self.spi_read(addr)
             print("Wrote", value, "to register", addr, ", Read back:", new_value)
+            if int(new_value) != value and addr != 0x02:  # Exclude register 2 which is likely read-only
+                print("Warning: Write to register", addr, "failed!")
 
     @kernel
     def read_all_registers(self):
