@@ -3,6 +3,8 @@ from artiq.coredevice.spi2 import SPI_INPUT, SPI_END
 from artiq.language.units import us, ms
 
 class DAC_Init(EnvExperiment):
+    MHz = 1.0
+
     def build(self):
         self.setattr_device("core")
         self.setattr_device("ttl0")
@@ -19,10 +21,18 @@ class DAC_Init(EnvExperiment):
         delay(10*ms)  # Wait for reset to complete
         self.spi_write(0x00, 0x00)  # Clear the reset bit
         delay(10*ms)  # Wait after reset
+        self.ltc2000.set_clear(1) # Clear the LTC2000 output
         print("Initializing the LTC2000...")
         self.initialize()
         print("Verifying initialization...")
         self.verify_initialization()
+        self.core.break_realtime()
+        self.ltc2000.set_clear(0) #release the LTC2000 output
+        delay(1000*ms)
+        self.ltc2000.set_clear(1)
+        delay(1000*ms)
+        self.ltc2000.write_rtio(0,0x0A000000)  # Set the frequency tuning word
+        self.ltc2000.set_clear(0) #release the LTC2000 output
 
     @kernel
     def spi_write(self, addr, data):
