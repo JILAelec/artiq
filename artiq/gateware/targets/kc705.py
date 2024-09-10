@@ -43,29 +43,40 @@ class SMAClkinForward(Module):
 # follows this default. But since the SMAs are on the same bank as the DDS,
 # which is set to 3.3V by reprogramming the KC705 power ICs, we need to
 # redefine them here.
-_reprogrammed3v3_io = [
-    ("user_sma_gpio_p_33", 0, Pins("Y23"), IOStandard("LVCMOS33")),
-    ("user_sma_gpio_n_33", 0, Pins("Y24"), IOStandard("LVCMOS33")),
+
+# Define the variable to check if the target is a 3.3V target
+is_3v3_target = False  # Set this variable based on your target configuration
+
+# Determine the IO standard based on the target voltage
+io_standard = "LVCMOS33" if is_3v3_target else "LVCMOS25"
+differential_io_standard = "TMDS_33" if is_3v3_target else "LVDS_25"
+
+# The default voltage for these signals on KC705 is 2.5V, and the Migen platform
+# follows this default. But since the SMAs are on the same bank as the DDS,
+# which is set to 3.3V by reprogramming the KC705 power ICs, we need to
+# redefine them here.
+_reprogrammed_io = [
+    ("user_sma_gpio_p_33", 0, Pins("Y23"), IOStandard(io_standard)),
+    ("user_sma_gpio_n_33", 0, Pins("Y24"), IOStandard(io_standard)),
     ("si5324_33", 0,
-        Subsignal("rst_n", Pins("AE20"), IOStandard("LVCMOS33")),
-        Subsignal("int", Pins("AG24"), IOStandard("LVCMOS33"))
+        Subsignal("rst_n", Pins("AE20"), IOStandard(io_standard)),
+        Subsignal("int", Pins("AG24"), IOStandard(io_standard))
     ),
-    ("sfp_tx_disable_n_33", 0, Pins("Y20"), IOStandard("LVCMOS33")),
+    ("sfp_tx_disable_n_33", 0, Pins("Y20"), IOStandard(io_standard)),
     # HACK: this should be LVDS, but TMDS is the only supported differential
     # output standard at 3.3V. KC705 hardware design issue?
     ("si5324_clkin_33", 0,
-        Subsignal("p", Pins("W27"), IOStandard("TMDS_33")),
-        Subsignal("n", Pins("W28"), IOStandard("TMDS_33"))
+        Subsignal("p", Pins("W27"), IOStandard(differential_io_standard)),
+        Subsignal("n", Pins("W28"), IOStandard(differential_io_standard))
     ),
     ("sdcard_spi_33", 0,
         Subsignal("miso", Pins("AC20"), Misc("PULLUP=TRUE")),
         Subsignal("clk", Pins("AB23")),
         Subsignal("mosi", Pins("AB22")),
         Subsignal("cs_n", Pins("AC21")),
-        IOStandard("LVCMOS33")
+        IOStandard(io_standard)
     )
 ]
-
 _ams101_dac = [
     ("ams101_dac", 0,
         Subsignal("ldac", Pins("XADC:GPIO0")),
