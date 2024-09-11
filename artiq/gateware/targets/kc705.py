@@ -55,7 +55,7 @@ differential_io_standard = "TMDS_33" if is_3v3_target else "LVDS_25"
 # follows this default. But since the SMAs are on the same bank as the DDS,
 # which is set to 3.3V by reprogramming the KC705 power ICs, we need to
 # redefine them here.
-_reprogrammed_io = [
+_reprogrammed3v3_io = [
     ("user_sma_gpio_p_33", 0, Pins("Y23"), IOStandard(io_standard)),
     ("user_sma_gpio_n_33", 0, Pins("Y24"), IOStandard(io_standard)),
     ("si5324_33", 0,
