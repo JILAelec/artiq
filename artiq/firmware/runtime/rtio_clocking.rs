@@ -17,7 +17,7 @@ pub enum RtioClock {
 
 #[allow(unreachable_code)]
 fn get_rtio_clock_cfg() -> RtioClock {
-    config::read_str("rtio_clock", |result| { 
+    config::read_str("rtio_clock", |result| {
         let res = match result {
             Ok("int_125") => RtioClock::Int_125,
             Ok("int_100") => RtioClock::Int_100,
@@ -94,7 +94,7 @@ const SI5324_EXT_INPUT: si5324::Input = si5324::Input::Ckin1;
 #[cfg(all(soc_platform = "kasli", not(hw_rev = "v2.0")))]
 const SI5324_EXT_INPUT: si5324::Input = si5324::Input::Ckin2;
 #[cfg(all(soc_platform = "kc705"))]
-const SI5324_EXT_INPUT: si5324::Input = si5324::Input::Ckin2;
+const SI5324_EXT_INPUT: si5324::Input = si5324::Input::Ckin1;
 
 fn setup_si5324_pll(cfg: RtioClock) {
     let (si5324_settings, si5324_ref_input) = match cfg {
@@ -235,7 +235,7 @@ fn setup_si5324(clock_cfg: RtioClock) {
     {
         info!("Switching sys clock, rebooting...");
         // delay for clean UART log, wait until UART FIFO is empty
-        clock::spin_us(1300); 
+        clock::spin_us(1300);
         unsafe {
             csr::crg::clock_sel_write(1);
             loop {}
