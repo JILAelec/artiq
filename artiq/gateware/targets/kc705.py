@@ -32,11 +32,15 @@ class SMAClkinForward(Module):
         sma_clkin_buffered = Signal()
         cdr_clk_se = Signal()
         cdr_clk = platform.request("si5324_clkin_33")
+        user_sma_gpio_p = platform.request("user_sma_gpio_p")
+        user_sma_gpio_n = platform.request("user_sma_gpio_n")
+
         self.specials += [
             Instance("IBUFDS", i_I=sma_clkin.p, i_IB=sma_clkin.n, o_O=sma_clkin_se),
             Instance("BUFG", i_I=sma_clkin_se, o_O=sma_clkin_buffered),
             Instance("ODDR", i_C=sma_clkin_buffered, i_CE=1, i_D1=0, i_D2=1, o_Q=cdr_clk_se),
-            Instance("OBUFDS", i_I=cdr_clk_se, o_O=cdr_clk.p, o_OB=cdr_clk.n)
+            Instance("OBUFDS", i_I=cdr_clk_se, o_O=cdr_clk.p, o_OB=cdr_clk.n),
+            Instance("OBUFDS", i_I=cdr_clk_se, o_O=user_sma_gpio_p, o_OB=user_sma_gpio_n)
         ]
 
 # The default voltage for these signals on KC705 is 2.5V, and the Migen platform
