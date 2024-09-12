@@ -152,6 +152,7 @@ class _StandaloneBase(MiniSoC, AMPSoC):
     mem_map.update(MiniSoC.mem_map)
 
     def __init__(self, gateware_identifier_str=None, drtio_100mhz=False, **kwargs):
+        clk_freq = 100e6 if drtio_100mhz else 125e6
         MiniSoC.__init__(self,
                          cpu_type="vexriscv",
                          cpu_bus_width=64,
@@ -161,11 +162,13 @@ class _StandaloneBase(MiniSoC, AMPSoC):
                          ethmac_nrxslots=4,
                          ethmac_ntxslots=4,
                          rtio_sys_merge=True,
+                         clk_freq=clk_freq,
                          **kwargs)
         AMPSoC.__init__(self)
         add_identifier(self, gateware_identifier_str=gateware_identifier_str)
 
         self.config["DRTIO_ROLE"] = "standalone"
+        self.config["RTIO_FREQUENCY"] = str(clk_freq/1e6)
 
         if isinstance(self.platform.toolchain, XilinxVivadoToolchain):
             self.platform.toolchain.bitstream_commands.extend([
