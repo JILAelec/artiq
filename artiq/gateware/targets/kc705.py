@@ -475,6 +475,11 @@ class _SatelliteBase(BaseSoC, AMPSoC):
             setattr(self.submodules, coreaux_name, coreaux)
             self.csr_devices.append(coreaux_name)
 
+            # Print all items of mem_map here
+            print("Memory map:")
+            for key, value in self.mem_map.items():
+                print(f"  {key}: {hex(value)}")
+
             memory_address = self.mem_map["drtioaux"] + 0x800*i
             self.add_wb_slave(memory_address, 0x800,
                               coreaux.bus)
@@ -736,7 +741,7 @@ class NIST_QC2(_StandaloneBase, _NIST_QC2_RTIO):
 
 class NIST_LTC(_StandaloneBase, _NIST_LTC_RTIO):
     def __init__(self, **kwargs):
-        _StandaloneBase.__init__(self, **kwargs)
+        _SatelliteBase.__init__(self, **kwargs)
         _NIST_LTC_RTIO.__init__(self)
 
 

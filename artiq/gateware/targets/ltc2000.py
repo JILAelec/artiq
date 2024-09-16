@@ -88,11 +88,14 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.submodules.ltc2000 = Ltc2000phy(self.dac_pads)
 
         # DDS setup
-        self.submodules.dds = PolyphaseDDS(16, 32, 18)
+        self.submodules.dds = ClockDomainsRenamer("sys2x")(PolyphaseDDS(12, 32, 18)) # 12 phases at 200 MHz => 2400 MSPS
         self.sync += [
             self.dds.ftw.eq(self.ftw.storage_full),  # input frequency tuning word
             self.dds.ptw.eq(self.ptw.storage_full),  # phase tuning word
-            self.dds.clr.eq(self.clr.storage_full),  # clear signal
+            self.dds.clr.eq(self.clr.storage_full)   # clear signal
+        ]
+
+        self.sync.sys2x += [
             self.ltc2000.data_in.eq(self.dds.dout)
         ]
 
