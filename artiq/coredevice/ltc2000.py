@@ -9,6 +9,7 @@ class LTC2000:
     def __init__(self, dmgr, channel, spi_device):
         self.spi = dmgr.get(spi_device)
         self.bus_channel = channel
+        self.ftw_per_hz = (2**32) / 2400e6  # Precompute FTW per Hz constant
 
     @kernel
     def init(self):
@@ -46,8 +47,14 @@ class LTC2000:
         self.write_rtio(DDS.FTW_ADDR, ftw)
 
     @portable
-    def frequency_to_ftw(self, freq):
-        return round((freq / 2400e6) * (1 << 32))
+    def frequency_to_ftw(self, freq: float) -> TInt32:
+        # Calculate the FTW using the precomputed constant
+        ftw = int(freq * self.ftw_per_hz)
+        return ftw
+
+    @kernel
+    def set_ftw(self, ftw):
+        self.write_rtio(DDS.FTW_ADDR, ftw)
 
     @kernel
     def set_amplitude(self, amplitude):
@@ -66,6 +73,12 @@ class LTC2000:
     @kernel
     def set_reset(self, value: TInt32):
         self.write_rtio(DDS.RST_ADDR, value)
+
+    @kernel
+    def reset(self):
+        self.set_reset(1)
+        delay(10 * us)
+        self.set_reset(0)
 
     @kernel
     def initialize(self):
@@ -87,5 +100,5 @@ class LTC2000:
         self.set_frequency(frequency)
         self.set_amplitude(amplitude)
         self.set_phase(phase)
-        #self.clear(0)
-        #self.reset()
+        # self.reset()
+        # self.set_clear(0)
