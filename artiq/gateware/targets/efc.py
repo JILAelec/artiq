@@ -70,6 +70,12 @@ ltc2000_spi = [
         Subsignal("miso", Pins("fmc0:HA21_P"), IOStandard("LVCMOS25"), Misc("PULLUP=TRUE"))
     )
 ]
+
+eem1_se_pads = [
+    ('eem1_se', i, Pins(f'eem1:d{i//2}_{"cc_" if i < 2 else ""}{"p" if i % 2 == 0 else "n"}'), IOStandard("LVCMOS25"))
+    for i in range(16)
+]
+
 shuttler_io = [
     ('dac_spi', 0,
         Subsignal('clk', Pins('fmc0:HB16_N')),
@@ -134,6 +140,7 @@ class Satellite(BaseSoC, AMPSoC):
     mem_map.update(BaseSoC.mem_map)
 
     def __init__(self, gateware_identifier_str=None, hw_rev="v1.1", rtio_clk_freq=125e6, variant="shuttler",  **kwargs):
+        print(rtio_clk_freq)
         BaseSoC.__init__(self,
                  cpu_type="vexriscv",
                  hw_rev=hw_rev,
@@ -228,6 +235,7 @@ class Satellite(BaseSoC, AMPSoC):
         for i in range(2):
             phy = ttl_simple.Output(self.virtual_leds.get(i))
             self.submodules += phy
+            print("VIRTUAL LED at RTIO channel 0x{:06x}".format(len(self.rtio_channels)))
             self.rtio_channels.append(rtio.Channel.from_phy(phy))
 
         if(variant == "shuttler"):
@@ -319,6 +327,18 @@ class Satellite(BaseSoC, AMPSoC):
             self.local_io.sed_spread_enable.eq(self.drtiosat.sed_spread_enable.storage)
         ]
 
+        # debug drtio
+        self.platform.add_extension(eem1_se_pads)
+        eem1_se = [self.platform.request("eem1_se", i) for i in range(16)]
+        # Assign stb signals
+        for i in range(4):
+            self.comb += eem1_se[i].eq(rtio_channels[i].interface.o.stb)
+        # Assign data signals
+        self.comb += eem1_se[4].eq(rtio_channels[0].interface.o.data)
+        self.comb += eem1_se[5].eq(rtio_channels[1].interface.o.data)
+        for i in range(10):
+            self.comb += eem1_se[i + 6].eq(rtio_channels[2].interface.o.data[i])
+
         # subkernel RTIO
         self.submodules.rtio = rtio.KernelInitiator(self.rtio_tsc)
         self.register_kernel_cpu_csrdevice("rtio")
@@ -336,7 +356,6 @@ class Satellite(BaseSoC, AMPSoC):
         self.submodules.rtio_analyzer = rtio.Analyzer(self.rtio_tsc, self.local_io.cri,
                                                 self.get_native_sdram_if(), cpu_dw=self.cpu_dw)
         self.csr_devices.append("rtio_analyzer")
-
 
 def main():
     parser = argparse.ArgumentParser(
@@ -358,9 +377,9 @@ def main():
     argdict["rtio_clk_freq"] = 100e6 if args.drtio100mhz else 125e6
     argdict["variant"] = args.variant.lower()
 
+    print(argdict)
     soc = Satellite(**argdict)
     build_artiq_soc(soc, builder_argdict(args))
-
 
 if __name__ == "__main__":
     main()
