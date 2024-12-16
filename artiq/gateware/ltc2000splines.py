@@ -145,7 +145,6 @@ class Dac(Module):
         ###
 
         subs = [
-            Volt(),
             Dds(self.clear),
         ]
 
@@ -156,13 +155,10 @@ class Dac(Module):
         data_buf = Signal(18)
         data_sink = Signal(16)
 
-        if sdm:
-            self.submodules.sdm = SigmaDeltaModulator(16, 14)
-
         self.sync.rio += [
             data_raw.eq(reduce(add, [sub.data for sub in subs])),
             # Extra buffer for timing for the DSP
-            data_buf.eq(((data_raw * Cat(self.gain, ~self.gain[-1])) + (self.offset << 16))[16:]),
+            data_buf.eq(((data_raw * Cat(self.gain, ~self.gain[-1])))[16:]),
             If(overflow,
                 data_sink.eq(0x7fff),
             ).Elif(underflow,
@@ -179,62 +175,10 @@ class Dac(Module):
             underflow.eq(data_buf[-1] & (~data_buf[-2] | ~data_buf[-3])),
         ]
 
-        if sdm:
-            self.comb += [
-                self.sdm.x.eq(data_sink),
-                self.data.eq(self.sdm.y),
-            ]
-        else:
-            self.comb += self.data.eq(data_sink[2:])
+        self.comb += self.data.eq(data_sink[2:])
 
         self.i = [ sub.i for sub in subs ]
         self.submodules += subs
-
-
-class Volt(Module):
-    """DC bias spline interpolator.
-
-    The line data is interpreted as a concatenation of:
-
-        * 16 bit amplitude offset
-        * 32 bit amplitude first order derivative
-        * 48 bit amplitude second order derivative
-        * 48 bit amplitude third order derivative
-
-    Attributes:
-        data (Signal[16]): Output data from this spline.
-        i (Endpoint): Coefficients of the DC bias spline, along with its
-                        latency compensation.
-    """
-    def __init__(self):
-        self.data = Signal(16)
-        self.i = Endpoint([("data", 144)])
-        self.i.latency = 17
-
-        ###
-
-        v = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
-
-        # Increase latency of stb by 17 cycles to compensate CORDIC latency
-        stb_r = [ Signal() for _ in range(17) ]
-        self.sync.rio += [
-            stb_r[0].eq(self.i.stb),
-        ]
-        for idx in range(16):
-            self.sync.rio += stb_r[idx+1].eq(stb_r[idx])
-
-        self.sync.rio += [
-            v[0].eq(v[0] + v[1]),
-            v[1].eq(v[1] + v[2]),
-            v[2].eq(v[2] + v[3]),
-            If(stb_r[16],
-                v[0].eq(0),
-                v[1].eq(0),
-                Cat(v[0][32:], v[1][16:], v[2], v[3]).eq(self.i.payload.raw_bits()),
-            )
-        ]
-        self.comb += self.data.eq(v[0][32:])
-
 
 class Dds(Module):
     """DDS spline interpolator.
@@ -300,9 +244,8 @@ class Config(Module):
     def __init__(self):
         self.clr = Signal(16, reset=0xFFFF)
         self.gain = [ Signal(16) for _ in range(16) ]
-        self.offset = [ Signal(16) for _ in range(16) ]
 
-        reg_file = Array(self.gain + self.offset + [self.clr])
+        reg_file = Array(self.gain + [self.clr])
         self.i = Endpoint([
             ("data", 16),
             ("addr",  7),
@@ -312,15 +255,15 @@ class Config(Module):
         ])
 
         # This introduces 1 extra latency to everything in config
-        # See the latency/delay attributes in Volt & DDS Endpoints/rtlinks
+        # See the latency/delay attributes in DDS Endpoints/rtlinks
         #
-        # Gain & offsets are intended for initial calibration only, latency
+        # Gain is intended for initial calibration only, latency
         # is NOT adjusted to match outputs to the DAC interface
         #
         # Interface address bits mapping:
         # 6: Read bit. Assert to read, deassert to write.
         # 5: Clear bit. Assert to write clr. clr is write-only.
-        # 4: Gain/Offset. (De)Assert to access (Gain)Offset registers.
+        # 4: Needs to be 0.
         # 0-3: Channel selection for the Gain & Offset registers.
         #
         # Reading Gain / Offset register generates an RTIOInput event
@@ -341,8 +284,8 @@ class Config(Module):
 Phy = namedtuple("Phy", "rtlink probes overrides")
 
 
-class Shuttler(Module, AutoCSR):
-    """Shuttler module.
+class LTC2000Splines(Module, AutoCSR):
+    """LTC2000 module.
 
     Used both in functional simulation and final gateware.
 
@@ -353,8 +296,6 @@ class Shuttler(Module, AutoCSR):
         phys (list): List of Endpoints.
     """
     def __init__(self, pads, sdm=False):
-        NUM_OF_DACS = 16
-
         self.submodules.dac_interface = DacInterface(pads)
 
         self.phys = []
@@ -381,32 +322,31 @@ class Shuttler(Module, AutoCSR):
         self.phys.append(Phy(cfg_rtl_iface, [], []))
 
         trigger_iface = rtlink.Interface(rtlink.OInterface(
-            data_width=NUM_OF_DACS,
+            data_width=1,
             enable_replace=False))
         self.phys.append(Phy(trigger_iface, [], []))
 
-        for idx in range(NUM_OF_DACS):
-            dac = Dac(sdm=sdm)
-            self.comb += [
-                dac.clear.eq(self.cfg.clr[idx]),
-                dac.gain.eq(self.cfg.gain[idx]),
-                dac.offset.eq(self.cfg.offset[idx]),
-                self.dac_interface.data[idx // 2][idx % 2].eq(dac.data)
+        dac = Dac(sdm=sdm)
+        self.comb += [
+            dac.clear.eq(self.cfg.clr[idx]),
+            dac.gain.eq(self.cfg.gain[idx]),
+            dac.offset.eq(self.cfg.offset[idx]),
+            self.dac_interface.data[idx // 2][idx % 2].eq(dac.data)
+        ]
+
+        for i in dac.i:
+            delay = getattr(i, "latency", 0)
+            rtl_iface = rtlink.Interface(rtlink.OInterface(
+                data_width=16, address_width=4, delay=delay))
+            array = Array(i.data[wi: wi+16] for wi in range(0, len(i.data), 16))
+
+            self.sync.rio += [
+                i.stb.eq(trigger_iface.o.data[idx] & trigger_iface.o.stb),
+                If(rtl_iface.o.stb,
+                    array[rtl_iface.o.address].eq(rtl_iface.o.data),
+                ),
             ]
 
-            for i in dac.i:
-                delay = getattr(i, "latency", 0)
-                rtl_iface = rtlink.Interface(rtlink.OInterface(
-                    data_width=16, address_width=4, delay=delay))
-                array = Array(i.data[wi: wi+16] for wi in range(0, len(i.data), 16))
-
-                self.sync.rio += [
-                    i.stb.eq(trigger_iface.o.data[idx] & trigger_iface.o.stb),
-                    If(rtl_iface.o.stb,
-                        array[rtl_iface.o.address].eq(rtl_iface.o.data),
-                    ),
-                ]
-
-                self.phys.append(Phy(rtl_iface, [], []))
+            self.phys.append(Phy(rtl_iface, [], []))
 
             self.submodules += dac
