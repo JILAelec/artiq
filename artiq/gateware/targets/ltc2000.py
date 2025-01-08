@@ -5,6 +5,7 @@ from misoc.interconnect.stream import Endpoint
 from artiq.gateware.ltc2000phy import Ltc2000phy
 from artiq.gateware.rtio import rtlink
 from misoc.cores.duc import PhasedAccu, CosSinGen
+from collections import namedtuple
 
 class PolyphaseDDS(Module):
     """Composite DDS with sub-DDSs synthesizing\n",
@@ -41,38 +42,28 @@ class LTC2000DDSModule(Module, AutoCSR):
         * 32 bit chirp
     """
 
-    # FTW_ADDR = 0
-    # ATW_ADDR = 1
-    # PTW_ADDR = 2
-    # CLR_ADDR = 3
-    # RST_ADDR = 4
-
     # def __init__(self):
     def __init__(self, platform, ltc2000_pads):
         self.platform = platform
-        self.rtio_channels = []
 
-        # Define CSRs
-        self.ftw = CSRStorage(32, reset=0x05F5E100, name="ftw")  # Frequency Tuning Word - 2400/2^32*FTW MHz -- 55.88 MHz
-        self.atw = CSRStorage(32, reset=0x00000000, name="atw")  # Amplitude Tuning Word
-        self.ptw = CSRStorage(32, reset=0x00000000, name="ptw")  # Phase Tuning Word
-        self.clr = CSRStorage(1, reset=0x0, name="clr")          # Clear Signal
-        self.reset = CSRStorage(1, reset=0x0, name="ltc2000_reset")  # Reset Signal
+        self.clear = Signal()
+        self.reset = Signal()
+        self.data = Signal(16)
+        self.ftw = Signal(32)
+        self.atw = Signal(32)
+        self.ptw = Signal(18)
 
         # RTIO Interface similar to PDQ
         self.i = Endpoint([("data", 224)])
-
-        clear = Signal()
 
         z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
         x = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
 
         self.sync += [
             # za.eq(za + z[1]),
-            clear.eq(0),
-            self.ftw.storage_full.eq(z[1]),
-            self.atw.storage_full.eq(x[0]),
-            self.ptw.storage_full.eq(z[0]),
+            self.ftw.eq(z[1]),
+            self.atw.eq(x[0]),
+            self.ptw.eq(z[0]),
             x[0].eq(x[0] + x[1]),
             x[1].eq(x[1] + x[2]),
             x[2].eq(x[2] + x[3]),
@@ -82,62 +73,87 @@ class LTC2000DDSModule(Module, AutoCSR):
                 x[1].eq(0),
                 Cat(x[0][32:], x[1][16:], x[2], x[3], z[0][16:], z[1], z[2] #amp, damp, ddamp, dddamp, phase offset, ftw, chirp
                     ).eq(self.i.payload.raw_bits()),
-                clear.eq(self.clr.storage_full)
             )
         ]
-
-        # # Add RTIO PHY
-        # self.rtlink = rtlink.Interface(
-        #     rtlink.OInterface(
-        #         data_width=32,
-        #         address_width=4,
-        #         enable_replace=False),
-        #     rtlink.IInterface(
-        #         data_width=32,
-        #         timestamped=False)
-        # )
-
-        # # Define previous_data and previous_address signals
-        # previous_data = Signal.like(self.rtlink.o.data)
-        # previous_address = Signal.like(self.rtlink.o.address)
-
-        # # RTIO to CSR bridge
-        # self.sync += [
-        #     If(self.rtlink.o.stb,
-        #         # Check if data or address has changed
-        #         If((self.rtlink.o.data != previous_data) | (self.rtlink.o.address != previous_address),
-        #             Case(self.rtlink.o.address[0:2], {
-        #                 self.FTW_ADDR: self.ftw.storage_full.eq(self.rtlink.o.data),
-        #                 self.ATW_ADDR: self.atw.storage_full.eq(self.rtlink.o.data),
-        #                 self.PTW_ADDR: self.ptw.storage_full.eq(self.rtlink.o.data),
-        #                 self.CLR_ADDR: self.clr.storage_full.eq(self.rtlink.o.data),
-        #                 self.RST_ADDR: self.reset.storage_full.eq(self.rtlink.o.data)
-        #             }),
-        #             self.rtlink.i.stb.eq(1)
-        #         ),
-        #         # Update previous_data and previous_address with the current values
-        #         previous_data.eq(self.rtlink.o.data),
-        #         previous_address.eq(self.rtlink.o.address)
-        #     )
-        # ]
-
-        #LTC2000 setup
-        platform.add_extension(ltc2000_pads)
-        self.dac_pads = platform.request("ltc2000")
-        platform.add_period_constraint(self.dac_pads.dcko_p, 1.66)
-        self.submodules.ltc2000 = Ltc2000phy(self.dac_pads)
 
         # DDS setup
         self.submodules.dds = ClockDomainsRenamer("sys2x")(PolyphaseDDS(12, 32, 18)) # 12 phases at 200 MHz => 2400 MSPS
         self.comb += [
-            self.dds.ftw.eq(self.ftw.storage_full),  # input frequency tuning word
-            self.dds.ptw.eq(self.ptw.storage_full),  # phase tuning word
-            self.dds.clr.eq(clear)                   # clear signal
+            self.dds.ftw.eq(self.ftw),  # input frequency tuning word
+            self.dds.ptw.eq(self.ptw),  # phase tuning word
+            self.dds.clr.eq(self.clear)      # clear signal
         ]
 
         self.sync.sys2x += [
-            self.ltc2000.data_in.eq(self.dds.dout)
+            self.data.eq(self.dds.dout)
         ]
 
-        # Reset signal with CSR
-        self.comb += self.ltc2000.reset.eq(self.reset.storage_full)
+Phy = namedtuple("Phy", "rtlink probes overrides")
+
+class LTC2000(Module, AutoCSR):
+
+    def __init__(self, platform, ltc2000_pads):
+        NUM_OF_DDS = 1
+        self.phys = []
+
+        #LTC2000 interface
+        self.reset = Signal()
+        platform.add_extension(ltc2000_pads)
+        self.dac_pads = platform.request("ltc2000")
+        platform.add_period_constraint(self.dac_pads.dcko_p, 1.66)
+        self.submodules.ltc2000 = Ltc2000phy(self.dac_pads)
+        self.comb += self.ltc2000.reset.eq(self.reset)
+
+        trigger_iface = rtlink.Interface(rtlink.OInterface(
+            data_width=NUM_OF_DDS,
+            enable_replace=False))
+        self.phys.append(Phy(trigger_iface, [], []))
+
+        clear = Signal()
+
+        for idx in range(NUM_OF_DDS):
+            tone = LTC2000DDSModule(platform, ltc2000_pads)
+            # self.comb += [
+            #     tone.clear.eq(self.cfg.clr[idx]),
+            #     tone.gain.eq(self.cfg.gain[idx]),
+            # ]
+
+            rtl_iface = rtlink.Interface(rtlink.OInterface(
+                data_width=16, address_width=4))
+
+            array = Array(tone.i.data[wi: wi+16] for wi in range(0, len(tone.i.data), 16))
+
+            self.sync.rio += [
+                tone.i.stb.eq(trigger_iface.o.data[idx] & trigger_iface.o.stb),
+                If(rtl_iface.o.stb,
+                    array[rtl_iface.o.address].eq(rtl_iface.o.data),
+                ),
+            ]
+
+            self.phys.append(Phy(rtl_iface, [], []))
+
+            self.submodules += tone
+            self.sync.sys2x += [
+                self.ltc2000.data_in.eq(tone.data)
+            ]
+
+        # self.submodules.cfg = Config()
+        # cfg_rtl_iface = rtlink.Interface(
+        #     rtlink.OInterface(
+        #         data_width=len(self.cfg.i.data),
+        #         address_width=len(self.cfg.i.addr),
+        #         enable_replace=False,
+        #     ),
+        #     rtlink.IInterface(
+        #         data_width=len(self.cfg.o.data),
+        #     ),
+        # )
+
+        # self.comb += [
+        #     self.cfg.i.stb.eq(cfg_rtl_iface.o.stb),
+        #     self.cfg.i.addr.eq(cfg_rtl_iface.o.address),
+        #     self.cfg.i.data.eq(cfg_rtl_iface.o.data),
+        #     cfg_rtl_iface.i.stb.eq(self.cfg.o.stb),
+        #     cfg_rtl_iface.i.data.eq(self.cfg.o.data),
+        # ]
+        # self.phys.append(Phy(cfg_rtl_iface, [], []))
