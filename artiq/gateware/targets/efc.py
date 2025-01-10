@@ -274,7 +274,7 @@ class Satellite(BaseSoC, AMPSoC):
             ltc2000_dds = LTC2000(self.platform, ltc2000_pads)
             self.submodules += ltc2000_dds
             print("LTC2000 DAC at RTIO channel 0x{:06x}".format(len(self.rtio_channels)))
-            self.rtio_channels.extend(rtio.Channel.from_phy(phy) for phy in self.ltc2000_dds.phys)
+            self.rtio_channels.extend(rtio.Channel.from_phy(phy) for phy in ltc2000_dds.phys)
 
             self.clock_domains.cd_sys2x = ClockDomain(reset_less=True)
             self.clock_domains.cd_sys6x = ClockDomain(reset_less=True)
