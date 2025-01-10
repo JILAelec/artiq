@@ -111,7 +111,7 @@ class LTC2000(Module, AutoCSR):
             enable_replace=False))
 
         for idx in range(NUM_OF_DDS):
-            tone = LTC2000DDSModule(platform, ltc2000_pads)
+            self.submodules.tone = LTC2000DDSModule(platform, ltc2000_pads)
             # self.comb += [
             #     tone.clear.eq(self.cfg.clr[idx]),
             #     tone.gain.eq(self.cfg.gain[idx]),
@@ -120,10 +120,10 @@ class LTC2000(Module, AutoCSR):
             rtl_iface = rtlink.Interface(rtlink.OInterface(
                 data_width=16, address_width=4))
 
-            array = Array(tone.i.data[wi: wi+16] for wi in range(0, len(tone.i.data), 16))
+            array = Array(self.tone.i.data[wi: wi+16] for wi in range(0, len(self.tone.i.data), 16))
 
             self.sync.rio += [
-                tone.i.stb.eq(trigger_iface.o.data[idx] & trigger_iface.o.stb),
+                self.tone.i.stb.eq(trigger_iface.o.data[idx] & trigger_iface.o.stb),
                 If(rtl_iface.o.stb,
                     array[rtl_iface.o.address].eq(rtl_iface.o.data),
                 ),
@@ -131,9 +131,9 @@ class LTC2000(Module, AutoCSR):
 
             self.phys.append(Phy(rtl_iface, [], []))
 
-            self.submodules += tone
+            # self.submodules += tone
             self.sync.sys2x += [
-                self.ltc2000.data_in.eq(tone.data)
+                self.ltc2000.data_in.eq(self.tone.data)
             ]
 
         self.phys.append(Phy(trigger_iface, [], []))
