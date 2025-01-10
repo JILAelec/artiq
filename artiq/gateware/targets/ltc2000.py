@@ -104,11 +104,6 @@ class LTC2000(Module, AutoCSR):
         self.submodules.ltc2000 = Ltc2000phy(self.dac_pads)
         self.comb += self.ltc2000.reset.eq(self.reset)
 
-        trigger_iface = rtlink.Interface(rtlink.OInterface(
-            data_width=NUM_OF_DDS,
-            enable_replace=False))
-        self.phys.append(Phy(trigger_iface, [], []))
-
         clear = Signal()
 
         for idx in range(NUM_OF_DDS):
@@ -136,6 +131,11 @@ class LTC2000(Module, AutoCSR):
             self.sync.sys2x += [
                 self.ltc2000.data_in.eq(tone.data)
             ]
+
+        trigger_iface = rtlink.Interface(rtlink.OInterface(
+            data_width=NUM_OF_DDS,
+            enable_replace=False))
+        self.phys.append(Phy(trigger_iface, [], []))
 
         # self.submodules.cfg = Config()
         # cfg_rtl_iface = rtlink.Interface(

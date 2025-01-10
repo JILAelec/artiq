@@ -56,14 +56,16 @@ class LTC2000:
     # Parameter interface methods
     @kernel
     def write_param_chunk(self, addr, data):
-        """Write 16-bit chunk of parameter data"""
-        rtio_output(self.data_channel, addr, data & 0xFFFF)
+        """Write 16-bit chunk of parameter data with 4-bit address"""
+        # Encode address and data together
+        word = ((addr & 0xF) << 16) | (data & 0xFFFF)
+        rtio_output(self.data_channel, word)
         delay(1*us)
 
     @kernel
     def trigger(self):
         """Trigger parameter update"""
-        rtio_output(self.trigger_channel, 0, 1)
+        rtio_output(self.trigger_channel, 1)
         delay(1*us)
 
     @portable

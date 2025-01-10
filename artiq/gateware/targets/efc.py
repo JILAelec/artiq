@@ -273,8 +273,8 @@ class Satellite(BaseSoC, AMPSoC):
             # LTC2000 and its DDS submodule
             ltc2000_dds = LTC2000(self.platform, ltc2000_pads)
             self.submodules += ltc2000_dds
-            # print("LTC2000 DAC at RTIO channel 0x{:06x}".format(len(self.rtio_channels)))
-            # self.rtio_channels.append(rtio.Channel.from_phy(ltc2000_dds))
+            print("LTC2000 DAC at RTIO channel 0x{:06x}".format(len(self.rtio_channels)))
+            self.rtio_channels.extend(rtio.Channel.from_phy(phy) for phy in self.ltc2000_dds.phys)
 
             self.clock_domains.cd_sys2x = ClockDomain(reset_less=True)
             self.clock_domains.cd_sys6x = ClockDomain(reset_less=True)
@@ -327,17 +327,23 @@ class Satellite(BaseSoC, AMPSoC):
             self.local_io.sed_spread_enable.eq(self.drtiosat.sed_spread_enable.storage)
         ]
 
-        # debug drtio
+        # EEM1 signals
         self.platform.add_extension(eem1_se_pads)
         eem1_se = [self.platform.request("eem1_se", i) for i in range(16)]
-        # Assign stb signals
-        for i in range(4):
-            self.comb += eem1_se[i].eq(rtio_channels[i].interface.o.stb)
-        # Assign data signals
-        self.comb += eem1_se[4].eq(rtio_channels[0].interface.o.data)
-        self.comb += eem1_se[5].eq(rtio_channels[1].interface.o.data)
-        for i in range(10):
-            self.comb += eem1_se[i + 6].eq(rtio_channels[2].interface.o.data[i])
+
+        # # debug drtio
+        # # Assign stb signals
+        # for i in range(4):
+        #     self.comb += eem1_se[i].eq(rtio_channels[i].interface.o.stb)
+        # # Assign data signals
+        # self.comb += eem1_se[4].eq(rtio_channels[0].interface.o.data)
+        # self.comb += eem1_se[5].eq(rtio_channels[1].interface.o.data)
+        # for i in range(10):
+        #     self.comb += eem1_se[i + 6].eq(rtio_channels[2].interface.o.data[i])
+
+        # debug dds ftw
+        for i in range(16):
+            self.comb += eem1_se[i].eq(self.ltc2000_dds.tone.ftw[i])
 
         # subkernel RTIO
         self.submodules.rtio = rtio.KernelInitiator(self.rtio_tsc)
