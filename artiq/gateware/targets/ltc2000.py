@@ -113,7 +113,7 @@ class LTC2000(Module, AutoCSR):
 
         self.sync.rio += [
             If(clear_endpoint.stb,
-                clear.eq(self.clear_endpoint.data),
+                clear.eq(clear_endpoint.data),
             )
         ]
 
