@@ -43,7 +43,7 @@ class LTC2000DDSModule(Module, AutoCSR):
     """
 
     # def __init__(self):
-    def __init__(self, platform, ltc2000_pads):
+    def __init__(self, platform):
         self.platform = platform
 
         self.clear = Signal()
@@ -106,16 +106,27 @@ class LTC2000(Module, AutoCSR):
 
         clear = Signal()
 
+        # Endpoint for clear signal
+        clear_endpoint = Endpoint([
+            ("data", 1),
+        ])
+
+        self.sync.rio += [
+            If(clear_endpoint.stb,
+                clear.eq(self.clear_endpoint.data),
+            )
+        ]
+
         trigger_iface = rtlink.Interface(rtlink.OInterface(
             data_width=NUM_OF_DDS,
             enable_replace=False))
 
         for idx in range(NUM_OF_DDS):
-            self.submodules.tone = LTC2000DDSModule(platform, ltc2000_pads)
-            # self.comb += [
-            #     tone.clear.eq(self.cfg.clr[idx]),
-            #     tone.gain.eq(self.cfg.gain[idx]),
-            # ]
+            self.submodules.tone = LTC2000DDSModule(platform)
+            self.comb += [
+                self.tone.clear.eq(clear),
+                # tone.gain.eq(self.cfg.gain[idx]),
+            ]
 
             rtl_iface = rtlink.Interface(rtlink.OInterface(
                 data_width=16, address_width=4))
@@ -137,6 +148,8 @@ class LTC2000(Module, AutoCSR):
             ]
 
         self.phys.append(Phy(trigger_iface, [], []))
+
+        self.phys.append(Phy(clear_endpoint, [], []))
 
         # self.submodules.cfg = Config()
         # cfg_rtl_iface = rtlink.Interface(
