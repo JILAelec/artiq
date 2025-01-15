@@ -275,7 +275,7 @@ class Satellite(BaseSoC, AMPSoC):
 
             # Print the RTIO channel and the names from the phys list
             for phy in self.ltc2000_dds.phys:
-                print("LTC2000 DAC at RTIO channel 0x{:06x}, name: {}".format(len(self.rtio_channels), phy.name))
+                print("LTC2000 {} at RTIO channel 0x{:06x}".format(phy.name, len(self.rtio_channels)))
                 self.rtio_channels.append(rtio.Channel.from_phy(phy))
 
             self.clock_domains.cd_sys2x = ClockDomain(reset_less=True)

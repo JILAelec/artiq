@@ -88,7 +88,7 @@ class LTC2000DDSModule(Module, AutoCSR):
             self.data.eq(self.dds.dout)
         ]
 
-Phy = namedtuple("Phy", "rtlink probes overrides")
+Phy = namedtuple("Phy", "rtlink probes overrides name")
 
 class LTC2000(Module, AutoCSR):
 
@@ -111,11 +111,23 @@ class LTC2000(Module, AutoCSR):
             ("data", 1),
         ])
 
+        # Wrap clear_endpoint in an rtlink.Interface
+        clear_iface = rtlink.Interface(rtlink.OInterface(
+            data_width=1,
+            enable_replace=False))
+
         self.sync.rio += [
             If(clear_endpoint.stb,
                 clear.eq(clear_endpoint.data),
-            )
+            ),
+            clear_iface.o.data.eq(clear_endpoint.data),
+            clear_iface.o.stb.eq(clear_endpoint.stb)
         ]
+
+        # self.comb += [
+        #     clear_iface.o.data.eq(clear_endpoint.data),
+        #     clear_iface.o.stb.eq(clear_endpoint.stb)
+        # ]
 
         trigger_iface = rtlink.Interface(rtlink.OInterface(
             data_width=NUM_OF_DDS,
@@ -140,16 +152,16 @@ class LTC2000(Module, AutoCSR):
                 ),
             ]
 
-            self.phys.append(Phy(rtl_iface, [], []))
+            self.phys.append(Phy(rtl_iface, [], [], 'rtl_iface'))
 
             # self.submodules += tone
             self.sync.sys2x += [
                 self.ltc2000.data_in.eq(self.tone.data)
             ]
 
-        self.phys.append(Phy(trigger_iface, [], []))
+        self.phys.append(Phy(trigger_iface, [], [], 'trigger_iface'))
 
-        self.phys.append(Phy(clear_endpoint, [], []))
+        self.phys.append(Phy(clear_iface, [], [], 'clear_iface'))
 
         # self.submodules.cfg = Config()
         # cfg_rtl_iface = rtlink.Interface(

@@ -126,6 +126,32 @@ class Trigger:
         """
         rtio_output(self.target_o, trig_out)
 
+class Clear:
+    """Shuttler Core clear signal.
+
+    :param channel: RTIO channel number of the clear interface.
+    :param core_device: Core device name.
+    """
+    kernel_invariants = {"core", "channel", "target_o"}
+
+    def __init__(self, dmgr, channel, core_device="core"):
+        self.core = dmgr.get(core_device)
+        self.channel = channel
+        self.target_o = channel << 8
+
+    @kernel
+    def clear(self, clear_out):
+        """Clears the Shuttler Core channel(s).
+
+        Each bit corresponds to a Shuttler waveform generator core. Setting
+        ``clear_out`` bits clears the corresponding channels in the Shuttler Core
+        synchronously.
+
+        :param clear_out: Clear signal bits. The MSB corresponds
+            to Channel 15, LSB corresponds to Channel 0.
+        """
+        rtio_output(self.target_o, clear_out)
+
 # class LTC2000:
 #     def __init__(self, dmgr, channel, spi_device):
 #         self.spi = dmgr.get(spi_device)
