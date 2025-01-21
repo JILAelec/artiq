@@ -6,6 +6,7 @@ from artiq.gateware.ltc2000phy import Ltc2000phy
 from artiq.gateware.rtio import rtlink
 from misoc.cores.duc import PhasedAccu, CosSinGen, saturate
 from collections import namedtuple
+from sumandscale import SumAndScale
 
 class PolyphaseDDS(Module):
     """Composite DDS with sub-DDSs synthesizing\n",
@@ -90,8 +91,9 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.ftw = Signal(32)
         self.atw = Signal(32)
         self.ptw = Signal(18)
-        #Output
-        self.dout = Signal((16*NPHASES*2, True))
+        # #Output
+        self.amplitude = Signal(16)
+        # self.dout = Signal((16*NPHASES*2, True))
         # gain for static magnitude scaling
         self.gain = Signal(16)
 
@@ -118,6 +120,9 @@ class LTC2000DDSModule(Module, AutoCSR):
             )
         ]
 
+        # Make amplitude accessible
+        self.comb += self.amplitude.eq(x[0][32:])
+
         # DDS setup
         self.submodules.dds = DoubleDataRateDDS(NPHASES, 32, 18) # 12 phases at 200 MHz => 2400 MSPS, output updated at 100 MHz
         self.comb += [
@@ -126,13 +131,13 @@ class LTC2000DDSModule(Module, AutoCSR):
             self.dds.clr.eq(self.clear) # clear signal
         ]
 
-        # Multiply DDS output with amplitude
-        for i in range(NPHASES*2):
-            scaled = Signal((32, True))
-            self.sync += [
-                scaled.eq(self.dds.dout[i*16:(i+1)*16] * x[0][32:]),
-                self.dout[i*16:(i+1)*16].eq(scaled >> 15)  # Scale back to 16 bits
-            ]
+        # # Multiply DDS output with amplitude
+        # for i in range(NPHASES*2):
+        #     scaled = Signal((32, True))
+        #     self.sync += [
+        #         scaled.eq(self.dds.dout[i*16:(i+1)*16] * x[0][32:]),
+        #         self.dout[i*16:(i+1)*16].eq(scaled >> 15)  # Scale back to 16 bits
+        #     ]
 
 
 Phy = namedtuple("Phy", "rtlink probes overrides name")
@@ -223,35 +228,21 @@ class LTC2000(Module, AutoCSR):
         NPHASES = 24
 
         # Sum all DDS outputs with saturation
-        dds_sum = Signal((18*NPHASES, True))  # Extra bits for summing
-        final_output = Signal((16*NPHASES, True))
+        self.summers = [SumAndScale() for _ in range(NPHASES)]
+        for idx, summer in enumerate(self.summers):
+            setattr(self.submodules, f"summer{idx}", summer)
 
-        # First add all channels
+        # Add and saturate all of our samples at their respective phases
         for i in range(NPHASES):
-            # # Extract and sum samples from each tone
-            # self.comb += dds_sum[i*17:(i+1)*17].eq(
-            #     (self.tones[0].dout[i*16:(i+1)*16] +
-            #      self.tones[1].dout[i*16:(i+1)*16] +
-            #      self.tones[2].dout[i*16:(i+1)*16] +
-            #      self.tones[3].dout[i*16:(i+1)*16])
-            # )
-
-            # # Saturate each summed sample
-            # self.sync += saturate(
-            #     final_output[i*16:(i+1)*16],
-            #     dds_sum[i*17:(i+1)*17]
-            # )
-
-            # Sum without saturation for now, saturation has bug
-            self.sync += final_output[i*16:(i+1)*16].eq(
-                self.tones[0].dout[i*16:(i+1)*16] +
-                self.tones[1].dout[i*16:(i+1)*16] +
-                self.tones[2].dout[i*16:(i+1)*16] +
-                self.tones[3].dout[i*16:(i+1)*16]
-            )
+            for j in range(NUM_OF_DDS):
+                self.comb += [
+                    self.summers[i].inputs[j].eq(self.tones[j].dds.dout[i*16:(i+1)*16]),
+                    self.summers[i].amplitudes[j].eq(self.tones[j].amplitude),
+                ]
 
         # Connect to DAC
-        self.sync += self.ltc2000.data.eq(final_output)
+        for i in range(NPHASES):
+            self.sync += self.ltc2000.data[i*16:(i+1)*16].eq(self.summers[i].output)
 
         TESTDAC = False #turn on to output 100 MHz test sine wave
         if TESTDAC:
