@@ -152,6 +152,39 @@ class Clear:
         """
         rtio_output(self.target_o, clear_out)
 
+class Reset:
+    """Shuttler Core reset signal.
+
+    :param channel: RTIO channel number of the clear interface.
+    :param core_device: Core device name.
+    """
+    kernel_invariants = {"core", "channel", "target_o"}
+
+    def __init__(self, dmgr, channel, core_device="core"):
+        self.core = dmgr.get(core_device)
+        self.channel = channel
+        self.target_o = channel << 8
+
+    @kernel
+    def reset(self, reset):
+        """Resets the LTC2000 DAC.
+
+        :param reset: Reset signal.
+        """
+        rtio_output(self.target_o, reset)
+
+class Gain:
+    """LTC2000 sub DDS gain control.
+
+    Not yet fully implemented.
+    """
+    kernel_invariants = {"core", "channel", "target_o"}
+
+    def __init__(self, dmgr, channel, core_device="core"):
+        self.core = dmgr.get(core_device)
+        self.channel = channel
+        self.target_o = channel << 8
+
 # class LTC2000:
 #     def __init__(self, dmgr, channel, spi_device):
 #         self.spi = dmgr.get(spi_device)
