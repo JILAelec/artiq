@@ -85,6 +85,7 @@ class LTC2000DDSModule(Module, AutoCSR):
 
     # def __init__(self):
     def __init__(self):
+        NPHASES = 12
         self.clear = Signal()
         self.ftw = Signal(32)
         self.atw = Signal(32)
@@ -99,7 +100,6 @@ class LTC2000DDSModule(Module, AutoCSR):
 
         z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
         x = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
-        NPHASES = 12
 
         self.sync += [
             # za.eq(za + z[1]),
