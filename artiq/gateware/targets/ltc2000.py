@@ -139,6 +139,24 @@ class LTC2000DDSModule(Module, AutoCSR):
         #         self.dout[i*16:(i+1)*16].eq(scaled >> 15)  # Scale back to 16 bits
         #     ]
 
+class LTC2000DataSynth(Module, AutoCSR):
+    def __init__(self, NUM_OF_DDS, NPHASES):
+        self.tones = [LTC2000DDSModule() for _ in range(NUM_OF_DDS)]
+        for idx, tone in enumerate(self.tones):
+            setattr(self.submodules, f"tone{idx}", tone)
+
+        # Sum all DDS outputs with saturation
+        self.summers = [SumAndScale() for _ in range(NPHASES)]
+        for idx, summer in enumerate(self.summers):
+            setattr(self.submodules, f"summer{idx}", summer)
+
+        # Add and saturate all of our samples at their respective phases
+        for i in range(NPHASES):
+            for j in range(NUM_OF_DDS):
+                self.comb += [
+                    self.summers[i].inputs[j].eq(self.tones[j].dds.dout[i*16:(i+1)*16]),
+                    self.summers[i].amplitudes[j].eq(self.tones[j].amplitude),
+                ]
 
 Phy = namedtuple("Phy", "rtlink probes overrides name")
 
@@ -146,6 +164,10 @@ class LTC2000(Module, AutoCSR):
 
     def __init__(self, platform, ltc2000_pads):
         NUM_OF_DDS = 4
+        NPHASES = 24
+
+        self.submodules.ltc2000datasynth = LTC2000DataSynth(NUM_OF_DDS, NPHASES)
+
         self.phys = []
 
         #LTC2000 interface
@@ -159,15 +181,13 @@ class LTC2000(Module, AutoCSR):
         trigger = Signal(NUM_OF_DDS)
         self.comb += self.ltc2000.reset.eq(reset)
 
-        self.tones = [LTC2000DDSModule() for _ in range(NUM_OF_DDS)]
-
         gain_iface = rtlink.Interface(rtlink.OInterface(
             data_width=16,
             address_width=4,
             enable_replace=False
         ))
 
-        tone_gains = Array([tone.gain for tone in self.tones])
+        tone_gains = Array([tone.gain for tone in self.ltc2000datasynth.tones])
         self.sync.rio += [
             If(gain_iface.o.stb,
                 tone_gains[gain_iface.o.address].eq(gain_iface.o.data)
@@ -205,8 +225,7 @@ class LTC2000(Module, AutoCSR):
             )
         ]
 
-        for idx, tone in enumerate(self.tones):
-            setattr(self.submodules, f"tone{idx}", tone)
+        for idx, tone in enumerate(self.ltc2000datasynth.tones):
             self.comb += [
                 tone.clear.eq(clear[idx]),
             ]
@@ -225,24 +244,9 @@ class LTC2000(Module, AutoCSR):
 
             self.phys.append(Phy(rtl_iface, [], [], 'rtl_iface'))
 
-        NPHASES = 24
-
-        # Sum all DDS outputs with saturation
-        self.summers = [SumAndScale() for _ in range(NPHASES)]
-        for idx, summer in enumerate(self.summers):
-            setattr(self.submodules, f"summer{idx}", summer)
-
-        # Add and saturate all of our samples at their respective phases
-        for i in range(NPHASES):
-            for j in range(NUM_OF_DDS):
-                self.comb += [
-                    self.summers[i].inputs[j].eq(self.tones[j].dds.dout[i*16:(i+1)*16]),
-                    self.summers[i].amplitudes[j].eq(self.tones[j].amplitude),
-                ]
-
         # Connect to DAC
         for i in range(NPHASES):
-            self.sync += self.ltc2000.data[i*16:(i+1)*16].eq(self.summers[i].output)
+            self.sync += self.ltc2000.data[i*16:(i+1)*16].eq(self.ltc2000datasynth.summers[i].output)
 
         TESTDAC = False #turn on to output 100 MHz test sine wave
         if TESTDAC:

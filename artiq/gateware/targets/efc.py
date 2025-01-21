@@ -345,7 +345,7 @@ class Satellite(BaseSoC, AMPSoC):
 
         # debug dds ftw
         for i in range(16):
-            self.comb += eem1_se[i].eq(self.ltc2000_dds.tone0.ftw[i])
+            self.comb += eem1_se[i].eq(self.ltc2000_dds.ltc2000datasynth.tone0.ftw[i])
 
         # subkernel RTIO
         self.submodules.rtio = rtio.KernelInitiator(self.rtio_tsc)
