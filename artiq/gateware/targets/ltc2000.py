@@ -89,6 +89,8 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.ftw = Signal(32)
         self.atw = Signal(32)
         self.ptw = Signal(18)
+        #Output
+        self.dout = Signal((16*NPHASES*2, True))
         # gain for static magnitude scaling
         self.gain = Signal(16)
 
@@ -125,7 +127,6 @@ class LTC2000DDSModule(Module, AutoCSR):
         ]
 
         # Multiply DDS output with amplitude
-        self.dout = Signal((16*NPHASES*2, True))
         for i in range(NPHASES*2):
             scaled = Signal((32, True))
             self.sync += [
@@ -227,18 +228,26 @@ class LTC2000(Module, AutoCSR):
 
         # First add all channels
         for i in range(NPHASES):
-            # Extract and sum samples from each tone
-            self.comb += dds_sum[i*17:(i+1)*17].eq(
-                (self.tones[0].dout[i*16:(i+1)*16] +
-                 self.tones[1].dout[i*16:(i+1)*16] +
-                 self.tones[2].dout[i*16:(i+1)*16] +
-                 self.tones[3].dout[i*16:(i+1)*16])
-            )
+            # # Extract and sum samples from each tone
+            # self.comb += dds_sum[i*17:(i+1)*17].eq(
+            #     (self.tones[0].dout[i*16:(i+1)*16] +
+            #      self.tones[1].dout[i*16:(i+1)*16] +
+            #      self.tones[2].dout[i*16:(i+1)*16] +
+            #      self.tones[3].dout[i*16:(i+1)*16])
+            # )
 
-            # Saturate each summed sample
-            self.sync += saturate(
-                final_output[i*16:(i+1)*16],
-                dds_sum[i*17:(i+1)*17]
+            # # Saturate each summed sample
+            # self.sync += saturate(
+            #     final_output[i*16:(i+1)*16],
+            #     dds_sum[i*17:(i+1)*17]
+            # )
+
+            # Sum without saturation for now, saturation has bug
+            self.sync += final_output[i*16:(i+1)*16].eq(
+                self.tones[0].dout[i*16:(i+1)*16] +
+                self.tones[1].dout[i*16:(i+1)*16] +
+                self.tones[2].dout[i*16:(i+1)*16] +
+                self.tones[3].dout[i*16:(i+1)*16]
             )
 
         # Connect to DAC
