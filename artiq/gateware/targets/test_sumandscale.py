@@ -12,9 +12,9 @@ def test_bench():
         0x9127, 0xa57f, 0xc001, 0xdee0
     ]
 
-    def tb_generator():
-        LATENCY = 2  # Pipeline latency in cycles
-        amp_value = 0x4000  # 1/4 scale
+    def test_with_amplitude(amp_value):
+        LATENCY = 2
+        print(f"\n=== Testing with amplitude {amp_value:04x} ===")
 
         # Set amplitudes
         for dds in range(4):
@@ -45,16 +45,43 @@ def test_bench():
                 output = (yield dut.summers[0].output)
                 expected_input = input_history[cycle-LATENCY]
 
-                print(f"Phase 0 Output: {output & 0xFFFF:04x} (from input {expected_input:04x} at cycle {cycle-LATENCY})")
+                # Calculate expected output based on amplitude scaling
+                # For each of the 4 identical inputs:
+                # 1. Multiply by amplitude
+                # 2. Sum all four products
+                # 3. Apply right shift of 16 (as per SumAndScale)
+                # 4. Apply saturation
+                product = (expected_input * amp_value * 4)  # 4x for summing four identical inputs
+                expected_output = product >> 16
 
-                # Verify amplitude scaling
-                for dds in range(4):
-                    input_val = (yield dut.summers[0].inputs[dds])
-                    amp_val = (yield dut.summers[0].amplitudes[dds])
-                    if input_val != input_history[-1]:
-                        print(f"  WARNING: DDS {dds} input mismatch: got {input_val:04x}, expected {input_history[-1]:04x}")
-                    if amp_val != amp_value:
-                        print(f"  WARNING: DDS {dds} amplitude mismatch: got {amp_val:04x}, expected {amp_value:04x}")
+                # Apply saturation
+                if expected_output > 32767:
+                    expected_output = 32767
+                elif expected_output < -32768:
+                    expected_output = -32768
+                expected_output = expected_output & 0xFFFF
+
+                print(f"Phase 0 Output: {output & 0xFFFF:04x} (from input {expected_input:04x})")
+                print(f"Expected Output: {expected_output:04x} with scaling {amp_value:04x}")
+
+                if abs((output & 0xFFFF) - expected_output) > 2:  # Allow small rounding differences
+                    print(f"Output scaling: {output & 0xFFFF:04x} / {expected_input:04x} = {(output & 0xFFFF) / expected_input if expected_input else 0:.3f}")
+                    print(f"Expected scaling: {expected_output:04x} / {expected_input:04x} = {expected_output / expected_input if expected_input else 0:.3f}")
+
+    def tb_generator():
+        # Test different amplitude configurations
+        test_amplitudes = [
+            0x2000,  # 1/8 scale
+            0x4000,  # 1/4 scale
+            0x8000,  # 1/2 scale
+            0xFFFF   # Full scale
+        ]
+
+        for amp_value in test_amplitudes:
+            yield from test_with_amplitude(amp_value)
+            # Add some cycles between amplitude changes
+            for _ in range(5):
+                yield
 
     run_simulation(dut, tb_generator(), vcd_name="ltc2000_datasynth_debug.vcd")
 
