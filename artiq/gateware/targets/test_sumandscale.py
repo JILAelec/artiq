@@ -12,9 +12,14 @@ def test_bench():
         0x9127, 0xa57f, 0xc001, 0xdee0
     ]
 
-    def test_with_amplitude(amp_value):
+    def test_with_amplitude(amp_value, active_channel=None):
+        """
+        Run test with given amplitude. If active_channel is specified (0-3),
+        only that channel will receive input while others are set to 0.
+        """
         LATENCY = 2
-        print(f"\n=== Testing with amplitude {amp_value:04x} ===")
+        test_type = "single channel" if active_channel is not None else "all channels"
+        print(f"\n=== Testing with amplitude {amp_value:04x} ({test_type}) ===")
 
         # Set amplitudes
         for dds in range(4):
@@ -22,36 +27,31 @@ def test_bench():
                 yield dut.amplitudes[dds][phase].eq(amp_value)
         yield
 
-        # Store input history for comparison
         input_history = []
 
-        # Run test cycles
         for cycle in range(10):
             if cycle < len(sample_data):
                 input_value = sample_data[cycle]
                 input_history.append(input_value)
                 print(f"\nCycle {cycle}: Setting input value {input_value:04x}")
 
-                # Set inputs
+                # Set inputs based on test mode
                 for dds in range(4):
                     for phase in range(24):
-                        yield dut.data_in[dds][phase].eq(input_value)
+                        if active_channel is None or dds == active_channel:
+                            yield dut.data_in[dds][phase].eq(input_value)
+                        else:
+                            yield dut.data_in[dds][phase].eq(0)
 
-            # Clock the circuit
             yield
 
-            # Monitor outputs
             if cycle >= LATENCY:
                 output = (yield dut.summers[0].output)
                 expected_input = input_history[cycle-LATENCY]
 
-                # Calculate expected output based on amplitude scaling
-                # For each of the 4 identical inputs:
-                # 1. Multiply by amplitude
-                # 2. Sum all four products
-                # 3. Apply right shift of 16 (as per SumAndScale)
-                # 4. Apply saturation
-                product = (expected_input * amp_value * 4)  # 4x for summing four identical inputs
+                # Calculate expected output based on test mode
+                multiplier = 4 if active_channel is None else 1
+                product = (expected_input * amp_value * multiplier)
                 expected_output = product >> 16
 
                 # Apply saturation
@@ -64,12 +64,10 @@ def test_bench():
                 print(f"Phase 0 Output: {output & 0xFFFF:04x} (from input {expected_input:04x})")
                 print(f"Expected Output: {expected_output:04x} with scaling {amp_value:04x}")
 
-                if abs((output & 0xFFFF) - expected_output) > 2:  # Allow small rounding differences
-                    print(f"Output scaling: {output & 0xFFFF:04x} / {expected_input:04x} = {(output & 0xFFFF) / expected_input if expected_input else 0:.3f}")
-                    print(f"Expected scaling: {expected_output:04x} / {expected_input:04x} = {expected_output / expected_input if expected_input else 0:.3f}")
+                if abs((output & 0xFFFF) - expected_output) > 2:
+                    print(f"WARNING: Output differs from expected!")
 
     def tb_generator():
-        # Test different amplitude configurations
         test_amplitudes = [
             0x2000,  # 1/8 scale
             0x4000,  # 1/4 scale
@@ -77,11 +75,16 @@ def test_bench():
             0xFFFF   # Full scale
         ]
 
+        # First test with all channels active
         for amp_value in test_amplitudes:
             yield from test_with_amplitude(amp_value)
-            # Add some cycles between amplitude changes
-            for _ in range(5):
-                yield
+            for _ in range(2): yield
+
+        # Then test each channel individually
+        for amp_value in test_amplitudes:
+            for channel in range(4):
+                yield from test_with_amplitude(amp_value, active_channel=channel)
+                for _ in range(2): yield
 
     run_simulation(dut, tb_generator(), vcd_name="ltc2000_datasynth_debug.vcd")
 
