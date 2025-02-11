@@ -58,9 +58,9 @@ class Ltc2000phy(Module, AutoCSR):
                     i_OCE=1,
                     i_RST=self.reset,
                     i_CLK=ClockSignal("sys6x"), i_CLKDIV=ClockSignal("sys2x"),
-                    i_D1=data_in[0*16 + i], i_D2=data_in[2*16 + i],
-                    i_D3=data_in[4*16 + i], i_D4=data_in[6*16 + i],
-                    i_D5=data_in[8*16 + i], i_D6=data_in[10*16 + i]
+                    i_D1=data_in[1*16 + i], i_D2=data_in[3*16 + i],
+                    i_D3=data_in[5*16 + i], i_D4=data_in[7*16 + i],
+                    i_D5=data_in[9*16 + i], i_D6=data_in[11*16 + i]
                 ),
                 Instance("OBUFDS",
                     i_I=dac_data_se[i],
@@ -76,9 +76,9 @@ class Ltc2000phy(Module, AutoCSR):
                     i_OCE=1,
                     i_RST=self.reset,
                     i_CLK=ClockSignal("sys6x"), i_CLKDIV=ClockSignal("sys2x"),
-                    i_D1=data_in[1*16 + i], i_D2=data_in[3*16 + i],
-                    i_D3=data_in[5*16 + i], i_D4=data_in[7*16 + i],
-                    i_D5=data_in[9*16 + i], i_D6=data_in[11*16 + i]
+                    i_D1=data_in[0*16 + i], i_D2=data_in[2*16 + i],
+                    i_D3=data_in[4*16 + i], i_D4=data_in[6*16 + i],
+                    i_D5=data_in[8*16 + i], i_D6=data_in[10*16 + i]
                 ),
                 Instance("OBUFDS",
                     i_I=dac_datb_se[i],
