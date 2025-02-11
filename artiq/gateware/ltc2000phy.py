@@ -14,9 +14,9 @@ class Ltc2000phy(Module, AutoCSR):
         counter = Signal()
         self.sync.sys2x += [
             If(~counter,
-                data_in.eq(self.data[16*2*6:]) #second half of data
-            ).Else(
                 data_in.eq(self.data[:16*2*6]) #first half of data
+            ).Else(
+                data_in.eq(self.data[16*2*6:]) #second half of data
             ),
             counter.eq(~counter)
         ]
