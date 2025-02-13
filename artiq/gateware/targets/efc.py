@@ -27,35 +27,37 @@ ltc2000_pads = [
         Subsignal("clk_n", Pins("fmc0:LA07_N"), IOStandard("LVDS_25")),
         Subsignal("dcko_p", Pins("fmc0:LA01_CC_P"), IOStandard("LVDS_25")),
         Subsignal("dcko_n", Pins("fmc0:LA01_CC_N"), IOStandard("LVDS_25")),
-        # C18 is FMC H4, externally terminated on EFC, it's called fmc_clk_m2c !!!MAY NEED TO REMOVE R24 of FMC BOARD!!!
         Subsignal("data_p", Pins(
-            "C18 fmc0:LA00_CC_P fmc0:LA02_P fmc0:LA03_P",
-            "fmc0:LA06_P fmc0:LA04_P fmc0:LA05_P",
-            "fmc0:LA08_P fmc0:LA10_P fmc0:LA09_P",
-            "fmc0:LA12_P fmc0:LA11_P fmc0:LA13_P",
-            "fmc0:LA14_P fmc0:LA16_P fmc0:LA15_P"),
+            "fmc0:LA15_P fmc0:LA16_P fmc0:LA14_P",
+            "fmc0:LA13_P fmc0:LA11_P fmc0:LA12_P",
+            "fmc0:LA09_P fmc0:LA10_P fmc0:LA08_P",
+            "fmc0:LA05_P fmc0:LA04_P fmc0:LA06_P",
+            "fmc0:LA03_P fmc0:LA02_P fmc0:LA00_CC_P",
+            "C18"), #H4, externally terminated on EFC, it's called fmc_clk_m2c !!!MAY NEED TO REMOVE R24 of FMC BOARD!!!
             IOStandard("LVDS_25")),
-        # C19 is FMC H5, externally terminated on EFC, it's called fmc_clk_m2c !!!MAY NEED TO REMOVE R24 of FMC BOARD!!!
         Subsignal("data_n", Pins(
-            "C19 fmc0:LA00_CC_N fmc0:LA02_N fmc0:LA03_N",
-            "fmc0:LA06_N fmc0:LA04_N fmc0:LA05_N",
-            "fmc0:LA08_N fmc0:LA10_N fmc0:LA09_N",
-            "fmc0:LA12_N fmc0:LA11_N fmc0:LA13_N",
-            "fmc0:LA14_N fmc0:LA16_N fmc0:LA15_N"),
+            "fmc0:LA15_N fmc0:LA16_N fmc0:LA14_N",
+            "fmc0:LA13_N fmc0:LA11_N fmc0:LA12_N",
+            "fmc0:LA09_N fmc0:LA10_N fmc0:LA08_N",
+            "fmc0:LA05_N fmc0:LA04_N fmc0:LA06_N",
+            "fmc0:LA03_N fmc0:LA02_N fmc0:LA00_CC_N",
+            "C19"), #H5, externally terminated on EFC, it's called fmc_clk_m2c !!!MAY NEED TO REMOVE R24 of FMC BOARD!!!
             IOStandard("LVDS_25")),
         Subsignal("datb_p", Pins(
-            "fmc0:LA17_CC_P fmc:LA20_P fmc0:LA19_P fmc0:LA23_P",
-            "fmc0:LA22_P fmc0:LA21_P fmc0:LA27_P",
-            "fmc0:LA26_P fmc0:LA25_P fmc0:LA24_P",
-            "fmc0:LA29_P fmc0:LA28_P fmc0:LA31_P",
-            "fmc0:LA30_P fmc0:LA33_P fmc0:LA32_P"),
+            "fmc0:LA32_P fmc0:LA33_P fmc0:LA30_P",
+            "fmc0:LA31_P fmc0:LA28_P fmc0:LA29_P",
+            "fmc0:LA24_P fmc0:LA25_P fmc0:LA26_P",
+            "fmc0:LA27_P fmc0:LA21_P fmc0:LA22_P",
+            "fmc0:LA23_P fmc0:LA19_P fmc0:LA20_P",
+            "fmc0:LA17_CC_P"),
             IOStandard("LVDS_25")),
         Subsignal("datb_n", Pins(
-            "fmc0:LA17_CC_N fmc:LA20_N fmc0:LA19_N fmc0:LA23_N",
-            "fmc0:LA22_N fmc0:LA21_N fmc0:LA27_N",
-            "fmc0:LA26_N fmc0:LA25_N fmc0:LA24_N",
-            "fmc0:LA29_N fmc0:LA28_N fmc0:LA31_N",
-            "fmc0:LA30_N fmc0:LA33_N fmc0:LA32_N"),
+            "fmc0:LA32_N fmc0:LA33_N fmc0:LA30_N",
+            "fmc0:LA31_N fmc0:LA28_N fmc0:LA29_N",
+            "fmc0:LA24_N fmc0:LA25_N fmc0:LA26_N",
+            "fmc0:LA27_N fmc0:LA21_N fmc0:LA22_N",
+            "fmc0:LA23_N fmc0:LA19_N fmc0:LA20_N",
+            "fmc0:LA17_CC_N"),
             IOStandard("LVDS_25"))
     )
 ]
