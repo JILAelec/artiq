@@ -260,7 +260,7 @@ class LTC2000(Module, AutoCSR):
         for i in range(NPHASES):
             self.sync += self.ltc2000.data[i*16:(i+1)*16].eq(self.ltc2000datasynth.summers[i].output)
 
-        TESTDAC = True #turn on to output 12.5 MHz test sine wave
+        TESTDAC = False #turn on to output 50 MHz test triangle wave
         if TESTDAC:
             # Sample data array for testing (8 * 24 samples)
             sample_data = [
