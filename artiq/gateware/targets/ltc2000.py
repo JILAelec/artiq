@@ -6,6 +6,7 @@ from artiq.gateware.ltc2000phy import Ltc2000phy
 from artiq.gateware.rtio import rtlink
 from misoc.cores.duc import PhasedAccu, CosSinGen, saturate
 from collections import namedtuple
+from sumandscale import SumAndScale
 
 class PolyphaseDDS(Module):
     """Composite DDS with sub-DDSs synthesizing
@@ -90,7 +91,7 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.ftw = Signal(32)
         self.atw = Signal(32)
         self.ptw = Signal(18)
-        self.dout = Signal((16*NPHASES*2, True))
+        self.amplitude = Signal(16)
         self.gain = Signal(16)
 
         self.i = Endpoint([("data", 224)])
@@ -114,6 +115,8 @@ class LTC2000DDSModule(Module, AutoCSR):
             )
         ]
 
+        self.comb += self.amplitude.eq(x[0][32:])
+
         self.submodules.dds = DoubleDataRateDDS(NPHASES, 32, 18) # 12 phases at 200 MHz => 2400 MSPS, output updated at 100 MHz
         self.comb += [
             self.dds.ftw.eq(self.ftw),
@@ -121,13 +124,25 @@ class LTC2000DDSModule(Module, AutoCSR):
             self.dds.clr.eq(self.clear)
         ]
 
-        for i in range(NPHASES*2):
-            scaled = Signal((32, True))
-            self.sync += [
-                scaled.eq(self.dds.dout[i*16:(i+1)*16] * x[0][32:]),
-                self.dout[i*16:(i+1)*16].eq(scaled >> 15)  # Scale back to 16 bits
-            ]
 
+class LTC2000DataSynth(Module, AutoCSR):
+    def __init__(self, NUM_OF_DDS, NPHASES):
+        self.amplitudes = Array([[Signal(16, name=f"amplitudes_{i}_{j}") for i in range(NPHASES)] for j in range(NUM_OF_DDS)])
+        self.data_in = Array([[Signal(16, name=f"data_in_{i}_{j}") for i in range(NPHASES)] for j in range(NUM_OF_DDS)])
+        self.ios = []
+
+        self.summers = [SumAndScale() for _ in range(NPHASES)]
+        for idx, summer in enumerate(self.summers):
+            setattr(self.submodules, f"summer{idx}", summer)
+
+        for i in range(NPHASES):
+            for j in range(NUM_OF_DDS):
+                self.ios.append(self.amplitudes[j][i])
+                self.ios.append(self.data_in[j][i])
+                self.comb += [
+                    self.summers[i].inputs[j].eq(self.data_in[j][i]),
+                    self.summers[i].amplitudes[j].eq(self.amplitudes[j][i]),
+                ]
 
 Phy = namedtuple("Phy", "rtlink probes overrides name")
 
@@ -135,6 +150,14 @@ class LTC2000(Module, AutoCSR):
 
     def __init__(self, platform, ltc2000_pads):
         NUM_OF_DDS = 4
+        NPHASES = 24
+
+        self.submodules.ltc2000datasynth = LTC2000DataSynth(NUM_OF_DDS, NPHASES)
+
+        self.tones = [LTC2000DDSModule() for _ in range(NUM_OF_DDS)]
+        for idx, tone in enumerate(self.tones):
+            setattr(self.submodules, f"tone{idx}", tone)
+
         self.phys = []
 
         platform.add_extension(ltc2000_pads)
@@ -145,8 +168,6 @@ class LTC2000(Module, AutoCSR):
         reset = Signal()
         trigger = Signal(NUM_OF_DDS)
         self.comb += self.ltc2000.reset.eq(reset)
-
-        self.tones = [LTC2000DDSModule() for _ in range(NUM_OF_DDS)]
 
         gain_iface = rtlink.Interface(rtlink.OInterface(
             data_width=16,
@@ -193,7 +214,6 @@ class LTC2000(Module, AutoCSR):
         ]
 
         for idx, tone in enumerate(self.tones):
-            setattr(self.submodules, f"tone{idx}", tone)
             self.comb += [
                 tone.clear.eq(clear[idx]),
             ]
@@ -212,21 +232,13 @@ class LTC2000(Module, AutoCSR):
 
             self.phys.append(Phy(rtl_iface, [], [], 'rtl_iface'))
 
-        NPHASES = 24
-
-        dds_sum = Signal((18*NPHASES, True))  # Extra bits for summing
-        final_output = Signal((16*NPHASES, True))
+        for i in range(NPHASES):
+            for j in range(NUM_OF_DDS):
+                self.comb += self.ltc2000datasynth.data_in[j][i].eq(self.tones[j].dds.dout[i*16:(i+1)*16])
+                self.comb += self.ltc2000datasynth.amplitudes[j][i].eq(self.tones[j].amplitude)
 
         for i in range(NPHASES):
-            # Sum without saturation for now, saturation has bug
-            self.sync += final_output[i*16:(i+1)*16].eq(
-                self.tones[0].dout[i*16:(i+1)*16] +
-                self.tones[1].dout[i*16:(i+1)*16] +
-                self.tones[2].dout[i*16:(i+1)*16] +
-                self.tones[3].dout[i*16:(i+1)*16]
-            )
-
-        self.sync += self.ltc2000.data.eq(final_output)
+            self.sync += self.ltc2000.data[i*16:(i+1)*16].eq(self.ltc2000datasynth.summers[i].output)
 
         self.phys.append(Phy(trigger_iface, [], [], 'trigger_iface'))
         self.phys.append(Phy(clear_iface, [], [], 'clear_iface'))

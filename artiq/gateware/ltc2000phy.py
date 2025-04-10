@@ -12,13 +12,22 @@ class Ltc2000phy(Module, AutoCSR):
 
         data_in = Signal(16*2*6) # 16 bits per channel, 2 channels, 6 samples per clock cycle, data coming in at sys2x rate => for 100 MHz sysclk we get 200 MHz * 2 * 6 = 2.4 Gbps
         counter = Signal()
+
+        data_reg = Signal(16*2*6)
+
+        # First stage: Load data into register, swapping halves
         self.sync.sys2x += [
             If(~counter,
-                data_in.eq(self.data[:16*2*6]) #first half of data
+                data_reg.eq(self.data[16*2*6:])  # Load second half first
             ).Else(
-                data_in.eq(self.data[16*2*6:]) #second half of data
+                data_reg.eq(self.data[:16*2*6])  # Load first half second
             ),
             counter.eq(~counter)
+        ]
+
+        # Second stage: Assign registered data to data_in
+        self.sync.sys2x += [
+            data_in.eq(data_reg)
         ]
 
         dac_clk_se = Signal()
