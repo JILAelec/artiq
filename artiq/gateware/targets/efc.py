@@ -18,7 +18,7 @@ from artiq.gateware.drtio.transceiver import eem_serdes
 from artiq.gateware.drtio.rx_synchronizer import NoRXSynchronizer
 from artiq.gateware.drtio import *
 from artiq.gateware.shuttler import Shuttler
-from artiq.gateware.targets.ltc2000 import LTC2000DDSModule
+from artiq.gateware.targets.ltc2000 import LTC2000
 from artiq.build_soc import *
 
 ltc2000_pads = [
@@ -280,10 +280,7 @@ class Satellite(BaseSoC, AMPSoC):
             print("LTC2000 DAC SPI at RTIO channel 0x{:06x}".format(len(self.rtio_channels)))
             self.rtio_channels.append(rtio.Channel.from_phy(ltc2000_spi_phy))
 
-            ltc2000_dds = LTC2000DDSModule(self.platform, ltc2000_pads)
-            self.submodules += ltc2000_dds
-            print("LTC2000 DAC at RTIO channel 0x{:06x}".format(len(self.rtio_channels)))
-            self.rtio_channels.append(rtio.Channel.from_phy(ltc2000_dds))
+            self.submodules.ltc2000_dds = LTC2000(self.platform, ltc2000_pads)
 
             self.clock_domains.cd_sys2x = ClockDomain(reset_less=True)
             self.clock_domains.cd_sys6x = ClockDomain(reset_less=True)
