@@ -38,8 +38,15 @@ class DDS:
 
     @kernel
     def set_waveform(self, b0: TInt32, b1: TInt32, b2: TInt64, b3: TInt64,
-            c0: TInt32, c1: TInt32, c2: TInt32):
+            c0: TInt32, c1: TInt32, c2: TInt32, shift: TInt32 = 0):
         """Set the DDS spline waveform.
+
+        The shift parameter controls the spline update rate:
+        - shift = 0: normal rate (no division)
+        - shift = 1: half rate (2x longer duration)
+        - shift = 2: quarter rate (4x longer duration)
+        - ...
+        - shift = 15: 1/32768 rate (32768x longer duration)
 
         Given `b(t)` and `c(t)` as defined in :class:`DDS`, the coefficients
         should be configured by the following formulae.
@@ -76,22 +83,31 @@ class DDS:
         :param c0: The :math:`c_0` coefficient in machine units.
         :param c1: The :math:`c_1` coefficient in machine units.
         :param c2: The :math:`c_2` coefficient in machine units.
+        :param shift: Clock division factor (0-15). Defaults to 0 (no division).
         """
+
+        if shift < 0 or shift > 15:
+            raise ValueError("Shift must be between 0 and 15")
+
+        if b1 < -32768 or b1 > 32767:
+        raise ValueError("b1 must fit in 16 bits (-32768 to 32767)")
+
         coef_words = [
-            b0,
-            b1,
-            b1 >> 16,
-            b2 & 0xFFFF,
-            (b2 >> 16) & 0xFFFF,
-            (b2 >> 32) & 0xFFFF,
-            b3 & 0xFFFF,
-            (b3 >> 16) & 0xFFFF,
-            (b3 >> 32) & 0xFFFF,
-            c0,
-            c1,
-            c1 >> 16,
-            c2,
-            c2 >> 16,
+            b0 & 0xFFFF,                           # [15:0] amplitude offset
+            b1 & 0xFFFF,                           # [31:16] damp (reduced to 16 bits)
+            0,                                     # [43:32] reserved (12 bits) - placeholder
+            shift & 0xF,                           # [47:44] shift (4 bits)
+            b2 & 0xFFFF,                          # [63:48] ddamp low
+            (b2 >> 16) & 0xFFFF,                  # [79:64] ddamp mid
+            (b2 >> 32) & 0xFFFF,                  # [95:80] ddamp high
+            b3 & 0xFFFF,                          # [111:96] dddamp low
+            (b3 >> 16) & 0xFFFF,                  # [127:112] dddamp mid
+            (b3 >> 32) & 0xFFFF,                  # [143:128] dddamp high
+            c0 & 0xFFFF,                          # [159:144] phase offset
+            c1 & 0xFFFF,                          # [175:160] ftw low
+            (c1 >> 16) & 0xFFFF,                  # [191:176] ftw high
+            c2 & 0xFFFF,                          # [207:192] chirp low
+            (c2 >> 16) & 0xFFFF,                  # [223:208] chirp high
         ]
 
         for i in range(len(coef_words)):

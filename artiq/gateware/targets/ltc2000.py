@@ -93,8 +93,26 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.ptw = Signal(18)
         self.amplitude = Signal(16)
         self.gain = Signal(16)
+        self.shift = Signal(4)
+        self.shift_counter = Signal(16) #need to count to 2**shift - 1
+        self.shift_stb = Signal()
+        self.reserved = Signal(12) # for future use
 
         self.i = Endpoint([("data", 224)])
+
+        self.comb += [
+            self.shift_stb.eq((self.shift == 0) |
+                             (self.shift_counter == (1 << self.shift) - 1)) # power of two for strobing
+        ]
+        self.sync += [
+            If(self.shift == 0,
+                self.shift_counter.eq(0)
+            ).Elif(self.shift_counter == (1 << self.shift) - 1,
+                self.shift_counter.eq(0)
+            ).Else(
+                self.shift_counter.eq(self.shift_counter + 1)
+            )
+        ]
 
         z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
         x = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
@@ -103,15 +121,29 @@ class LTC2000DDSModule(Module, AutoCSR):
             self.ftw.eq(z[1]),
             self.atw.eq(x[0]),
             self.ptw.eq(z[0]),
-            x[0].eq(x[0] + x[1]),
-            x[1].eq(x[1] + x[2]),
-            x[2].eq(x[2] + x[3]),
-            z[1].eq(z[1] + z[2]),
+
+            #using shift here as a divider
+            If(self.shift_stb,
+                x[0].eq(x[0] + x[1]),
+                x[1].eq(x[1] + x[2]),
+                x[2].eq(x[2] + x[3]),
+                z[1].eq(z[1] + z[2]),
+            ),
+
             If(self.i.stb,
                 x[0].eq(0),
                 x[1].eq(0),
-                Cat(x[0][32:], x[1][16:], x[2], x[3], z[0][16:], z[1], z[2] #amp, damp, ddamp, dddamp, phase offset, ftw, chirp
-                    ).eq(self.i.payload.raw_bits()),
+                Cat(x[0][32:],           # amp offset (16 bits)
+                    x[1][16:32],         # damp (LOWER 16 bits)
+                    self.reserved,       # unused (12 bits)
+                    self.shift,          # shift (4 UPPER bits)
+                    x[2],                # ddamp (48 bits)
+                    x[3],                # dddamp (48 bits)
+                    z[0][16:],           # phase offset (16 bits)
+                    z[1],                # ftw (32 bits)
+                    z[2]                 # chirp (32 bits)
+                ).eq(self.i.payload.raw_bits()),
+                self.shift_counter.eq(0),
             )
         ]
 
