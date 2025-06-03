@@ -58,9 +58,9 @@ class DoubleDataRateDDS(Module):
 
             self.sync.sys2x += [
                 If(counter,
-                    dout2x[idx*16:(idx+1)*16].eq(dds.y)
+                    dout2x[idx*16:(idx+1)*16].eq(dds.x)
                 ).Else(
-                    dout2x[(idx+n)*16:(idx+n+1)*16].eq(dds.y)
+                    dout2x[(idx+n)*16:(idx+n+1)*16].eq(dds.x)
                 ),
                 counter.eq(~counter)
             ]
@@ -276,3 +276,136 @@ class LTC2000(Module, AutoCSR):
         self.phys.append(Phy(clear_iface, [], [], 'clear_iface'))
         self.phys.append(Phy(reset_iface, [], [], 'reset_iface'))
         self.phys.append(Phy(gain_iface, [], [], 'gain_iface'))
+
+### test below here
+
+# Replace everything after the LTC2000 class with this:
+
+class LTC2000DDSModuleTest(Module):
+    """Simplified version that ONLY tests coefficient processing - no DDS"""
+
+    def __init__(self):
+        self.clear = Signal()
+        self.ftw = Signal(32)
+        self.atw = Signal(32)
+        self.ptw = Signal(18)
+        self.amplitude = Signal(16)
+        self.gain = Signal(16)
+
+        self.i = Endpoint([("data", 224)])
+
+        z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
+        x = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
+
+        # Expose z and x for testing
+        self.z = z
+        self.x = x
+
+        self.sync += [
+            self.ftw.eq(z[1]),
+            self.atw.eq(x[0]),
+            self.ptw.eq(z[0]),
+            x[0].eq(x[0] + x[1]),
+            x[1].eq(x[1] + x[2]),
+            x[2].eq(x[2] + x[3]),
+            z[1].eq(z[1] + z[2]),
+            If(self.i.stb,
+                x[0].eq(0),
+                x[1].eq(0),
+                Cat(x[0][32:], x[1][16:], x[2], x[3], z[0][16:], z[1], z[2]).eq(self.i.payload.raw_bits()),
+            )
+        ]
+
+        self.comb += self.amplitude.eq(x[0][32:])
+
+def test_coefficient_processing():
+    """Test coefficient processing and monitor amplitude over time"""
+
+    # Get total cycles from user
+    try:
+        total_cycles = int(input("Enter total number of cycles: "))
+    except ValueError:
+        print("Invalid input, using default: 100 cycles")
+        total_cycles = 100
+
+    # Calculate interval for 20 intermediate points + final point
+    interval = max(1, total_cycles // 20)
+    output_points = [i * interval for i in range(21)]  # 0, interval, 2*interval, ..., 20*interval
+
+    # Make sure the last point is exactly at the requested cycle
+    if output_points[-1] != total_cycles:
+        output_points[-1] = total_cycles
+
+    def tb_process(dut):
+        # Load initial coefficients
+        test_case = {
+            'amp': 14251,
+            'damp': 429,
+            'ddamp': 4,
+            'dddamp': 0x0,
+            'phase_offset': 0x0,
+            'ftw': 0x0,
+            'chirp': 0x0
+        }
+
+        print("Loading initial coefficients:")
+        for key, value in test_case.items():
+            print(f"  {key:12}: 0x{value:x}")
+
+        # Pack and load coefficients
+        packed_data = (
+            test_case['amp'] |                          # [15:0]
+            (test_case['damp'] << 16) |                 # [47:16]
+            (test_case['ddamp'] << 48) |                # [95:48]
+            (test_case['dddamp'] << 96) |               # [143:96]
+            (test_case['phase_offset'] << 144) |        # [159:144]
+            (test_case['ftw'] << 160) |                 # [191:160]
+            (test_case['chirp'] << 192)                 # [223:192]
+        )
+
+        # Apply coefficients
+        yield dut.i.payload.data.eq(packed_data)
+        yield dut.i.stb.eq(1)
+        yield
+        yield dut.i.stb.eq(0)
+
+        print(f"\nMonitoring amplitude over {total_cycles} cycles (20 intermediate points + final):")
+
+        # Calculate the width needed for cycle numbers
+        cycle_width = max(len(str(total_cycles)), 5)  # 5 is length of "Cycle"
+
+        # Simple right-justified format without vertical lines
+        print(f"{'Cycle':>{cycle_width}}   Amplitude (hex)   Amplitude (dec)")
+        print(f"{'-' * cycle_width}   ---------------   ---------------")
+
+        output_index = 0
+
+        # Monitor amplitude for total_cycles
+        for cycle in range(total_cycles + 1):
+            # Check if we should output at this cycle
+            if output_index < len(output_points) and cycle == output_points[output_index]:
+                amplitude = yield dut.amplitude
+                print(f"{cycle:>{cycle_width}d}        0x{amplitude:04x}            {amplitude:6d}")
+                output_index += 1
+
+            # Advance one cycle (except on the last iteration)
+            if cycle < total_cycles:
+                yield
+
+    # Run simulation
+    dut = LTC2000DDSModuleTest()
+
+    from migen.sim import Simulator
+
+    def clock():
+        # Run for enough cycles to complete the test
+        for _ in range(total_cycles + 10):  # Extra cycles for setup
+            yield
+
+    print("Testing coefficient processing with amplitude monitoring...")
+    sim = Simulator(dut, [tb_process(dut), clock()])
+    sim.run()
+    print("Done!")
+
+if __name__ == "__main__":
+    test_coefficient_processing()
