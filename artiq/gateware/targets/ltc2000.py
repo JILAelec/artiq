@@ -277,9 +277,12 @@ class LTC2000(Module, AutoCSR):
         self.phys.append(Phy(reset_iface, [], [], 'reset_iface'))
         self.phys.append(Phy(gain_iface, [], [], 'gain_iface'))
 
-### test below here
-
-# Replace everything after the LTC2000 class with this:
+import json
+import csv
+import os
+from migen.sim import Simulator
+from migen import *
+from misoc.interconnect.stream import Endpoint
 
 class LTC2000DDSModuleTest(Module):
     """Simplified version that ONLY tests coefficient processing - no DDS"""
@@ -291,13 +294,32 @@ class LTC2000DDSModuleTest(Module):
         self.ptw = Signal(18)
         self.amplitude = Signal(16)
         self.gain = Signal(16)
+        self.shift = Signal(4)
+        self.shift_counter = Signal(16)
+        self.shift_stb = Signal()
+        self.reserved = Signal(12)
 
-        self.i = Endpoint([("data", 224)])
+        self.i = Endpoint([("data", 240)])  # Updated to 240 bits
 
-        z = [Signal(32) for i in range(3)] # phase, dphase, ddphase
-        x = [Signal(48) for i in range(4)] # amp, damp, ddamp, dddamp
+        # Shift logic
+        self.comb += [
+            self.shift_stb.eq((self.shift == 0) |
+                             (self.shift_counter == (1 << self.shift) - 1))
+        ]
+        self.sync += [
+            If(self.shift == 0,
+                self.shift_counter.eq(0)
+            ).Elif(self.shift_counter == (1 << self.shift) - 1,
+                self.shift_counter.eq(0)
+            ).Else(
+                self.shift_counter.eq(self.shift_counter + 1)
+            )
+        ]
 
-        # Expose z and x for testing
+        z = [Signal(32) for i in range(3)]  # phase, dphase, ddphase
+        x = [Signal(48) for i in range(4)]  # amp, damp, ddamp, dddamp
+
+        # Expose signals for testing
         self.z = z
         self.x = x
 
@@ -305,107 +327,577 @@ class LTC2000DDSModuleTest(Module):
             self.ftw.eq(z[1]),
             self.atw.eq(x[0]),
             self.ptw.eq(z[0]),
-            x[0].eq(x[0] + x[1]),
-            x[1].eq(x[1] + x[2]),
-            x[2].eq(x[2] + x[3]),
-            z[1].eq(z[1] + z[2]),
+
+            If(self.shift_stb,
+                x[0].eq(x[0] + x[1]),
+                x[1].eq(x[1] + x[2]),
+                x[2].eq(x[2] + x[3]),
+                z[1].eq(z[1] + z[2]),
+            ),
+
             If(self.i.stb,
                 x[0].eq(0),
                 x[1].eq(0),
-                Cat(x[0][32:], x[1][16:], x[2], x[3], z[0][16:], z[1], z[2]).eq(self.i.payload.raw_bits()),
+                # Updated to match new 32-bit damp format
+                Cat(x[0][32:],           # amp offset (16 bits) [15:0]
+                    x[1][16:],           # damp (32 bits) [47:16]
+                    x[2],                # ddamp (48 bits) [95:48]
+                    x[3],                # dddamp (48 bits) [143:96]
+                    z[0][16:],           # phase offset (16 bits) [159:144]
+                    z[1],                # ftw (32 bits) [191:160]
+                    z[2],                # chirp (32 bits) [223:192]
+                    self.reserved,       # reserved (12 bits) [235:224]
+                    self.shift,          # shift (4 bits) [239:236]
+                ).eq(self.i.payload.raw_bits()),
+                self.shift_counter.eq(0),
             )
         ]
 
         self.comb += self.amplitude.eq(x[0][32:])
 
-def test_coefficient_processing():
-    """Test coefficient processing and monitor amplitude over time"""
+class TestConfiguration:
+    """Class to handle test configuration loading and validation"""
 
-    # Get total cycles from user
-    try:
-        total_cycles = int(input("Enter total number of cycles: "))
-    except ValueError:
-        print("Invalid input, using default: 100 cycles")
-        total_cycles = 100
+    def __init__(self, config_dict):
+        self.name = config_dict.get('name', 'Unnamed Test')
+        self.description = config_dict.get('description', '')
+        self.cycles = config_dict.get('cycles', 100)
+        self.shift = config_dict.get('shift', 0)
+        self.coefficients = config_dict.get('coefficients', {})
+        self.output_options = config_dict.get('output', {})
+        self.validation = config_dict.get('validation', {})
 
-    # Calculate interval for 20 intermediate points + final point
-    interval = max(1, total_cycles // 20)
-    output_points = [i * interval for i in range(21)]  # 0, interval, 2*interval, ..., 20*interval
-
-    # Make sure the last point is exactly at the requested cycle
-    if output_points[-1] != total_cycles:
-        output_points[-1] = total_cycles
-
-    def tb_process(dut):
-        # Load initial coefficients
-        test_case = {
-            'amp': 14251,
-            'damp': 429,
-            'ddamp': 4,
-            'dddamp': 0x0,
-            'phase_offset': 0x0,
-            'ftw': 0x0,
-            'chirp': 0x0
+        # Set default coefficients
+        default_coeffs = {
+            'amp': 0,
+            'damp': 0,
+            'ddamp': 0,
+            'dddamp': 0,
+            'phase_offset': 0,
+            'ftw': 0,
+            'chirp': 0,
+            'reserved': 0
         }
+        default_coeffs.update(self.coefficients)
+        self.coefficients = default_coeffs
 
-        print("Loading initial coefficients:")
-        for key, value in test_case.items():
-            print(f"  {key:12}: 0x{value:x}")
+        # Validate shift value
+        self.shift = max(0, min(15, self.shift))
 
-        # Pack and load coefficients
-        packed_data = (
-            test_case['amp'] |                          # [15:0]
-            (test_case['damp'] << 16) |                 # [47:16]
-            (test_case['ddamp'] << 48) |                # [95:48]
-            (test_case['dddamp'] << 96) |               # [143:96]
-            (test_case['phase_offset'] << 144) |        # [159:144]
-            (test_case['ftw'] << 160) |                 # [191:160]
-            (test_case['chirp'] << 192)                 # [223:192]
+        # No more 16-bit constraint for damp - now supports full 32-bit range!
+        for coeff in ['ddamp', 'dddamp']:  # Only validate 48-bit coefficients
+            if coeff in self.coefficients:
+                value = self.coefficients[coeff]
+                max_48bit = (1 << 47) - 1  # 2^47 - 1 for signed 48-bit
+                min_48bit = -(1 << 47)     # -2^47 for signed 48-bit
+                if value > max_48bit or value < min_48bit:
+                    print(f"WARNING: {coeff}={value} exceeds 48-bit range [{min_48bit}, {max_48bit}]. Clamping to valid range.")
+                    self.coefficients[coeff] = max(min_48bit, min(max_48bit, value))
+
+    def get_update_interval(self):
+        return 1 if self.shift == 0 else (1 << self.shift)
+
+    def pack_coefficients(self):
+        """Pack coefficients into the format expected by the module (240-bit format)"""
+        return (
+            self.coefficients['amp'] |                          # bits [15:0] (16 bits)
+            (self.coefficients['damp'] << 16) |                 # bits [47:16] (32 bits)
+            (self.coefficients['ddamp'] << 48) |                # bits [95:48] (48 bits)
+            (self.coefficients['dddamp'] << 96) |               # bits [143:96] (48 bits)
+            (self.coefficients['phase_offset'] << 144) |        # bits [159:144] (16 bits)
+            (self.coefficients['ftw'] << 160) |                 # bits [191:160] (32 bits)
+            (self.coefficients['chirp'] << 192) |               # bits [223:192] (32 bits)
+            (self.coefficients['reserved'] << 224) |            # bits [235:224] (12 bits)
+            (self.shift << 236)                                 # bits [239:236] (4 bits)
         )
 
-        # Apply coefficients
+class TestResult:
+    """Class to store and analyze test results"""
+
+    def __init__(self, config):
+        self.config = config
+        self.cycles = []
+        self.amplitudes = []
+        self.updates = []
+        self.debug_info = []
+        # Full data for validation (every cycle)
+        self.full_cycles = []
+        self.full_updates = []
+        self.passed = None
+        self.errors = []
+
+    def add_sample(self, cycle, amplitude, updated, debug_info=None):
+        self.cycles.append(cycle)
+        self.amplitudes.append(amplitude)
+        self.updates.append(updated)
+        self.debug_info.append(debug_info or {})
+
+    def add_full_cycle_data(self, cycle, updated):
+        """Add full cycle data for validation purposes"""
+        self.full_cycles.append(cycle)
+        self.full_updates.append(updated)
+
+    def validate(self):
+        """Validate results against expected behavior"""
+        self.passed = True
+        self.errors = []
+
+        validation = self.config.validation
+
+        # Check final amplitude if specified
+        if 'final_amplitude' in validation:
+            expected = validation['final_amplitude']
+            actual = self.amplitudes[-1] if self.amplitudes else 0
+            tolerance = validation.get('amplitude_tolerance', 0)
+
+            if abs(actual - expected) > tolerance:
+                self.passed = False
+                self.errors.append(f"Final amplitude {actual} != expected {expected} (tolerance: {tolerance})")
+
+        # Check update intervals
+        if 'check_updates' in validation and validation['check_updates']:
+            expected_interval = self.config.get_update_interval()
+
+            # Use full cycle data for validation, not downsampled display data
+            if self.full_cycles and self.full_updates:
+                # Use full cycle data for accurate validation
+                update_cycles = [self.full_cycles[i] for i, updated in enumerate(self.full_updates) if updated]
+            else:
+                # Fallback to display data if full data not available
+                update_cycles = [self.cycles[i] for i, updated in enumerate(self.updates) if updated]
+
+            # Check if updates occur at expected intervals
+            for i in range(1, len(update_cycles)):
+                actual_interval = update_cycles[i] - update_cycles[i-1]
+                if actual_interval != expected_interval:
+                    self.passed = False
+                    self.errors.append(f"Update interval {actual_interval} != expected {expected_interval} at cycle {update_cycles[i]}")
+                    break
+
+        # Check amplitude progression (monotonic increase/decrease)
+        if 'monotonic' in validation:
+            direction = validation['monotonic']  # 'increasing', 'decreasing', 'non_decreasing', 'non_increasing'
+            for i in range(1, len(self.amplitudes)):
+                if direction == 'increasing' and self.amplitudes[i] < self.amplitudes[i-1]:
+                    self.passed = False
+                    self.errors.append(f"Non-monotonic increase at cycle {self.cycles[i]}: {self.amplitudes[i]} < {self.amplitudes[i-1]}")
+                    break
+                elif direction == 'decreasing' and self.amplitudes[i] > self.amplitudes[i-1]:
+                    self.passed = False
+                    self.errors.append(f"Non-monotonic decrease at cycle {self.cycles[i]}: {self.amplitudes[i]} > {self.amplitudes[i-1]}")
+                    break
+                elif direction == 'non_decreasing' and self.amplitudes[i] < self.amplitudes[i-1]:
+                    self.passed = False
+                    self.errors.append(f"Decreasing amplitude at cycle {self.cycles[i]}: {self.amplitudes[i]} < {self.amplitudes[i-1]}")
+                    break
+                elif direction == 'non_increasing' and self.amplitudes[i] > self.amplitudes[i-1]:
+                    self.passed = False
+                    self.errors.append(f"Increasing amplitude at cycle {self.cycles[i]}: {self.amplitudes[i]} > {self.amplitudes[i-1]}")
+                    break
+
+        return self.passed
+
+def run_single_test(config, verbose=False):
+    """Run a single test with the given configuration"""
+
+    def tb_process(dut):
+        # Load coefficients
+        packed_data = config.pack_coefficients()
+
         yield dut.i.payload.data.eq(packed_data)
         yield dut.i.stb.eq(1)
         yield
         yield dut.i.stb.eq(0)
 
-        print(f"\nMonitoring amplitude over {total_cycles} cycles (20 intermediate points + final):")
+        # Calculate output points for monitoring
+        total_cycles = config.cycles
+        if verbose:
+            # In verbose mode, capture more data points
+            interval = max(1, min(10, total_cycles // 50))
+            output_points = list(range(0, total_cycles + 1, interval))
+            if output_points[-1] != total_cycles:
+                output_points.append(total_cycles)
+        else:
+            interval = max(1, total_cycles // 20)
+            output_points = [i * interval for i in range(21)]
+            if output_points[-1] != total_cycles:
+                output_points[-1] = total_cycles
 
-        # Calculate the width needed for cycle numbers
-        cycle_width = max(len(str(total_cycles)), 5)  # 5 is length of "Cycle"
-
-        # Simple right-justified format without vertical lines
-        print(f"{'Cycle':>{cycle_width}}   Amplitude (hex)   Amplitude (dec)")
-        print(f"{'-' * cycle_width}   ---------------   ---------------")
-
+        result = TestResult(config)
         output_index = 0
 
-        # Monitor amplitude for total_cycles
+        # Monitor amplitude and internal states
         for cycle in range(total_cycles + 1):
-            # Check if we should output at this cycle
+            shift_stb = yield dut.shift_stb
+            shift_counter = yield dut.shift_counter
+
+            # Always collect full cycle data for validation
+            result.add_full_cycle_data(cycle, shift_stb)
+
+            # Collect detailed data at output points for display
             if output_index < len(output_points) and cycle == output_points[output_index]:
                 amplitude = yield dut.amplitude
-                print(f"{cycle:>{cycle_width}d}        0x{amplitude:04x}            {amplitude:6d}")
+
+                # Capture additional debug info if verbose
+                debug_info = {}
+                if verbose:
+                    debug_info['shift_counter'] = shift_counter
+                    debug_info['x0'] = yield dut.x[0]
+                    debug_info['x1'] = yield dut.x[1]
+                    debug_info['x2'] = yield dut.x[2]
+                    debug_info['x3'] = yield dut.x[3]
+                    debug_info['z0'] = yield dut.z[0]
+                    debug_info['z1'] = yield dut.z[1]
+                    debug_info['z2'] = yield dut.z[2]
+                    debug_info['ftw'] = yield dut.ftw
+                    debug_info['atw'] = yield dut.atw
+                    debug_info['ptw'] = yield dut.ptw
+
+                result.add_sample(cycle, amplitude, shift_stb, debug_info)
                 output_index += 1
 
-            # Advance one cycle (except on the last iteration)
             if cycle < total_cycles:
                 yield
+
+        return result
 
     # Run simulation
     dut = LTC2000DDSModuleTest()
 
-    from migen.sim import Simulator
-
     def clock():
-        # Run for enough cycles to complete the test
-        for _ in range(total_cycles + 10):  # Extra cycles for setup
+        for _ in range(config.cycles + 10):
             yield
 
-    print("Testing coefficient processing with amplitude monitoring...")
-    sim = Simulator(dut, [tb_process(dut), clock()])
+    # Store result in a way we can access it
+    result_container = [None]
+
+    def wrapper_tb(dut):
+        result_container[0] = yield from tb_process(dut)
+
+    sim = Simulator(dut, [wrapper_tb(dut), clock()])
     sim.run()
-    print("Done!")
+
+    return result_container[0]
+
+def print_test_report(result, verbose=False):
+    """Print a detailed report for a single test"""
+    config = result.config
+
+    print(f"\n{'='*80}")
+    print(f"Test: {config.name}")
+    print(f"{'='*80}")
+
+    if config.description:
+        print(f"Description: {config.description}")
+
+    print(f"Cycles: {config.cycles}")
+    print(f"Shift: {config.shift} (update every {config.get_update_interval()} cycles)")
+
+    print("\nCoefficients:")
+    for key, value in config.coefficients.items():
+        if key != 'reserved':
+            print(f"  {key:12}: 0x{value:08x} ({value:>10})")
+
+    status_color = "PASS" if result.passed else "FAIL"
+    print(f"\nResults: {status_color}")
+
+    if result.errors:
+        print("\nErrors:")
+        for error in result.errors:
+            print(f"  - {error}")
+
+    if verbose and result.debug_info and any(result.debug_info):
+        print(f"\n{'='*80}")
+        print("VERBOSE DEBUG INFORMATION")
+        print(f"{'='*80}")
+
+        # Show coefficient evolution
+        print("\nCoefficient Evolution (x[] and z[] arrays):")
+        print(f"{'Cycle':>6} {'Upd':>4} {'Cnt':>4} {'x[0]':>14} {'x[1]':>14} {'x[2]':>14} {'x[3]':>14} {'z[0]':>12} {'z[1]':>12} {'z[2]':>12}")
+        print(f"{'-'*6} {'-'*4} {'-'*4} {'-'*14} {'-'*14} {'-'*14} {'-'*14} {'-'*12} {'-'*12} {'-'*12}")
+
+        for i, (cycle, updated, debug) in enumerate(zip(result.cycles, result.updates, result.debug_info)):
+            if debug:
+                upd_str = "Yes" if updated else "No"
+                counter = debug.get('shift_counter', 0)
+                x0 = debug.get('x0', 0)
+                x1 = debug.get('x1', 0)
+                x2 = debug.get('x2', 0)
+                x3 = debug.get('x3', 0)
+                z0 = debug.get('z0', 0)
+                z1 = debug.get('z1', 0)
+                z2 = debug.get('z2', 0)
+
+                print(f"{cycle:6d} {upd_str:>4} {counter:4d} {x0:14,d} {x1:14,d} {x2:14,d} {x3:14,d} {z0:12,d} {z1:12,d} {z2:12,d}")
+
+        # Show derived signals
+        print(f"\nDerived Signals:")
+        print(f"{'Cycle':>6} {'Amplitude':>12} {'FTW':>12} {'ATW':>14} {'PTW':>10}")
+        print(f"{'-'*6} {'-'*12} {'-'*12} {'-'*14} {'-'*10}")
+
+        for i, (cycle, amp, debug) in enumerate(zip(result.cycles, result.amplitudes, result.debug_info)):
+            if debug:
+                ftw = debug.get('ftw', 0)
+                atw = debug.get('atw', 0)
+                ptw = debug.get('ptw', 0)
+                print(f"{cycle:6d} {amp:12,d} {ftw:12,d} {atw:14,d} {ptw:10,d}")
+
+        # Show update interval analysis
+        print(f"\nUpdate Interval Analysis:")
+
+        # Use full cycle data for accurate analysis
+        if result.full_cycles and result.full_updates:
+            update_cycles = [result.full_cycles[i] for i, updated in enumerate(result.full_updates) if updated]
+        else:
+            # Fallback to display data
+            update_cycles = [result.cycles[i] for i, updated in enumerate(result.updates) if updated]
+
+        if len(update_cycles) > 1:
+            intervals = [update_cycles[i] - update_cycles[i-1] for i in range(1, len(update_cycles))]
+            expected_interval = config.get_update_interval()
+
+            print(f"Expected interval: {expected_interval}")
+            print(f"Actual intervals: {intervals[:10]}{'...' if len(intervals) > 10 else ''}")  # Show first 10
+            print(f"All intervals correct: {all(interval == expected_interval for interval in intervals)}")
+
+            # Show where intervals are wrong
+            wrong_count = 0
+            for i, interval in enumerate(intervals):
+                if interval != expected_interval:
+                    if wrong_count < 5:  # Limit to first 5 errors
+                        print(f"  Wrong interval at update {i+1}: {interval} (should be {expected_interval})")
+                    wrong_count += 1
+            if wrong_count > 5:
+                print(f"  ... and {wrong_count - 5} more interval errors")
+        else:
+            print("Not enough updates to analyze intervals")
+
+    print("\nAmplitude Evolution:")
+    if verbose:
+        print(f"{'Cycle':>6}   {'Amplitude':>12}   {'Updated':>7}   {'ShiftCnt':>8}   {'Change':>8}")
+        print(f"{'-'*6}   {'-'*12}   {'-'*7}   {'-'*8}   {'-'*8}")
+    else:
+        print(f"{'Cycle':>6}   {'Amplitude':>12}   {'Updated':>7}")
+        print(f"{'-'*6}   {'-'*12}   {'-'*7}")
+
+    prev_amp = None
+    for i, (cycle, amp, updated) in enumerate(zip(result.cycles, result.amplitudes, result.updates)):
+        if verbose and result.debug_info[i]:
+            counter = result.debug_info[i].get('shift_counter', 0)
+            change = amp - prev_amp if prev_amp is not None else 0
+            print(f"{cycle:6d}   0x{amp:04x} ({amp:6,d})   {'Yes' if updated else 'No':>7}   {counter:8d}   {change:+8d}")
+        else:
+            print(f"{cycle:6d}   0x{amp:04x} ({amp:6,d})   {'Yes' if updated else 'No':>7}")
+        prev_amp = amp
+
+def save_csv_report(results, filename):
+    """Save test results to CSV file"""
+    with open(filename, 'w', newline='') as csvfile:
+        writer = csv.writer(csvfile)
+
+        # Write header
+        writer.writerow(['Test_Name', 'Cycle', 'Amplitude_Hex', 'Amplitude_Dec', 'Updated',
+                        'Shift', 'Update_Interval', 'Passed', 'Errors'])
+
+        # Write data for each test
+        for result in results:
+            config = result.config
+            for i, (cycle, amp, updated) in enumerate(zip(result.cycles, result.amplitudes, result.updates)):
+                writer.writerow([
+                    config.name,
+                    cycle,
+                    f"0x{amp:04x}",
+                    amp,
+                    updated,
+                    config.shift,
+                    config.get_update_interval(),
+                    result.passed,
+                    '; '.join(result.errors) if result.errors else ''
+                ])
+
+def create_sample_config():
+    """Create a sample configuration file"""
+    sample_configs = [
+        {
+            "name": "Basic Linear Ramp",
+            "description": "Simple linear amplitude increase",
+            "cycles": 50,
+            "shift": 0,
+            "coefficients": {
+                "amp": 1000,
+                "damp": 100,
+                "ddamp": 0,
+                "dddamp": 0
+            },
+            "validation": {
+                "final_amplitude": 6000,
+                "amplitude_tolerance": 100,
+                "monotonic": "increasing",
+                "check_updates": true
+            }
+        },
+        {
+            "name": "Quadratic Growth",
+            "description": "Quadratic amplitude increase with shift=2",
+            "cycles": 100,
+            "shift": 2,
+            "coefficients": {
+                "amp": 500,
+                "damp": 10,
+                "ddamp": 5,
+                "dddamp": 0
+            },
+            "validation": {
+                "monotonic": "increasing",
+                "check_updates": true
+            }
+        },
+        {
+            "name": "Cubic Polynomial",
+            "description": "Full cubic polynomial test",
+            "cycles": 80,
+            "shift": 1,
+            "coefficients": {
+                "amp": 2000,
+                "damp": -50,
+                "ddamp": 2,
+                "dddamp": 1
+            },
+            "validation": {
+                "check_updates": true
+            }
+        },
+        {
+            "name": "High Shift Test",
+            "description": "Test with shift=4 (update every 16 cycles)",
+            "cycles": 200,
+            "shift": 4,
+            "coefficients": {
+                "amp": 10000,
+                "damp": 200,
+                "ddamp": 0,
+                "dddamp": 0
+            },
+            "validation": {
+                "monotonic": "increasing",
+                "check_updates": true
+            }
+        },
+        {
+            "name": "Phase and Frequency Test",
+            "description": "Test with phase and frequency components",
+            "cycles": 60,
+            "shift": 0,
+            "coefficients": {
+                "amp": 8000,
+                "damp": 0,
+                "phase_offset": 1000,
+                "ftw": 500,
+                "chirp": 10
+            },
+            "validation": {
+                "check_updates": true
+            }
+        }
+    ]
+
+    with open('ltc2000_test_config.json', 'w') as f:
+        json.dump(sample_configs, f, indent=2)
+
+    print("Created sample configuration file: ltc2000_test_config.json")
+
+def load_test_configs(filename):
+    """Load test configurations from JSON file"""
+    try:
+        with open(filename, 'r') as f:
+            config_data = json.load(f)
+
+        configs = []
+        for config_dict in config_data:
+            configs.append(TestConfiguration(config_dict))
+
+        return configs
+
+    except FileNotFoundError:
+        print(f"Configuration file {filename} not found.")
+        return []
+    except json.JSONDecodeError as e:
+        print(f"Error parsing configuration file: {e}")
+        return []
+
+def run_test_suite(config_filename="ltc2000_test_config.json"):
+    """Run a complete test suite"""
+
+    # Check if config file exists, create sample if not
+    if not os.path.exists(config_filename):
+        print(f"Configuration file {config_filename} not found. Creating sample...")
+        create_sample_config()
+        return
+
+    # Load configurations
+    configs = load_test_configs(config_filename)
+    if not configs:
+        print("No valid test configurations found.")
+        return
+
+    print(f"Running {len(configs)} tests...")
+
+    # Run all tests in normal mode first
+    results = []
+    failed_configs = []
+
+    for i, config in enumerate(configs):
+        print(f"\nRunning test {i+1}/{len(configs)}: {config.name}")
+        result = run_single_test(config, verbose=False)
+        result.validate()
+        results.append(result)
+
+        if not result.passed:
+            failed_configs.append(config)
+
+    # Print summary
+    print(f"\n{'='*60}")
+    print("TEST SUITE SUMMARY")
+    print(f"{'='*60}")
+
+    passed = sum(1 for r in results if r.passed)
+    total = len(results)
+
+    print(f"Tests passed: {passed}/{total}")
+    print(f"Success rate: {passed/total*100:.1f}%")
+
+    print(f"\n{'Test Name':<40} {'Shift':<6} {'Cycles':<8} {'Result':<8}")
+    print(f"{'-'*40} {'-'*6} {'-'*8} {'-'*8}")
+
+    for result in results:
+        config = result.config
+        status = "PASS" if result.passed else "FAIL"
+        print(f"{config.name:<40} {config.shift:<6} {config.cycles:<8} {status:<8}")
+
+    # Re-run failed tests in verbose mode for detailed analysis
+    if failed_configs:
+        print(f"\n{'='*60}")
+        print(f"VERBOSE ANALYSIS OF FAILED TESTS ({len(failed_configs)} tests)")
+        print(f"{'='*60}")
+        print("Re-running failed tests with detailed debugging information...")
+
+        verbose_results = []
+        for i, config in enumerate(failed_configs):
+            print(f"\nRe-running failed test {i+1}/{len(failed_configs)}: {config.name}")
+            verbose_result = run_single_test(config, verbose=True)
+            verbose_result.validate()
+            verbose_results.append(verbose_result)
+            print_test_report(verbose_result, verbose=True)
+
+    # Save CSV report (using original results, not verbose re-runs)
+    csv_filename = config_filename.replace('.json', '_results.csv')
+    save_csv_report(results, csv_filename)
+    print(f"\nResults saved to: {csv_filename}")
+
+    return results
 
 if __name__ == "__main__":
-    test_coefficient_processing()
+    print("LTC2000 DDS Test Framework")
+    print("==========================")
+
+    run_test_suite()
