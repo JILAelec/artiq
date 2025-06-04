@@ -98,7 +98,7 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.shift_stb = Signal()
         self.reserved = Signal(12) # for future use
 
-        self.i = Endpoint([("data", 224)])
+        self.i = Endpoint([("data", 240)])
 
         self.comb += [
             self.shift_stb.eq((self.shift == 0) |
@@ -134,14 +134,14 @@ class LTC2000DDSModule(Module, AutoCSR):
                 x[0].eq(0),
                 x[1].eq(0),
                 Cat(x[0][32:],           # amp offset (16 bits)
-                    x[1][16:32],         # damp (LOWER 16 bits)
-                    self.reserved,       # unused (12 bits)
-                    self.shift,          # shift (4 UPPER bits)
+                    x[1][16:],           # damp (32 bits)
                     x[2],                # ddamp (48 bits)
                     x[3],                # dddamp (48 bits)
                     z[0][16:],           # phase offset (16 bits)
                     z[1],                # ftw (32 bits)
-                    z[2]                 # chirp (32 bits)
+                    z[2],                # chirp (32 bits)
+                    self.reserved,       # reserved (12 bits)
+                    self.shift,          # shift (4 UPPER bits)
                 ).eq(self.i.payload.raw_bits()),
                 self.shift_counter.eq(0),
             )

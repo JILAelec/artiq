@@ -89,14 +89,10 @@ class DDS:
         if shift < 0 or shift > 15:
             raise ValueError("Shift must be between 0 and 15")
 
-        if b1 < -32768 or b1 > 32767:
-        raise ValueError("b1 must fit in 16 bits (-32768 to 32767)")
-
         coef_words = [
-            b0 & 0xFFFF,                           # [15:0] amplitude offset
-            b1 & 0xFFFF,                           # [31:16] damp (reduced to 16 bits)
-            0,                                     # [43:32] reserved (12 bits) - placeholder
-            shift & 0xF,                           # [47:44] shift (4 bits)
+            b0 & 0xFFFF,                          # [15:0] amplitude offset
+            b1 & 0xFFFF,                          # [31:16] damp low
+            (b1 >> 16) & 0xFFFF,                  # [47:32] damp high
             b2 & 0xFFFF,                          # [63:48] ddamp low
             (b2 >> 16) & 0xFFFF,                  # [79:64] ddamp mid
             (b2 >> 32) & 0xFFFF,                  # [95:80] ddamp high
@@ -108,6 +104,7 @@ class DDS:
             (c1 >> 16) & 0xFFFF,                  # [191:176] ftw high
             c2 & 0xFFFF,                          # [207:192] chirp low
             (c2 >> 16) & 0xFFFF,                  # [223:208] chirp high
+            shift & 0xF,                          # [227:224] shift
         ]
 
         for i in range(len(coef_words)):
