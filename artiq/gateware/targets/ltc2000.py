@@ -140,8 +140,8 @@ class LTC2000DDSModule(Module, AutoCSR):
                     z[0][16:],           # phase offset (16 bits)
                     z[1],                # ftw (32 bits)
                     z[2],                # chirp (32 bits)
+                    self.shift,          # shift (4 LOWER bits)
                     self.reserved,       # reserved (12 bits)
-                    self.shift,          # shift (4 UPPER bits)
                 ).eq(self.i.payload.raw_bits()),
                 self.shift_counter.eq(0),
             )

@@ -104,7 +104,7 @@ class DDS:
             (c1 >> 16) & 0xFFFF,                  # [191:176] ftw high
             c2 & 0xFFFF,                          # [207:192] chirp low
             (c2 >> 16) & 0xFFFF,                  # [223:208] chirp high
-            shift & 0xF,                          # [227:224] shift
+            shift & 0xF,                          # [239:224] shift (only 4 bits used)
         ]
 
         for i in range(len(coef_words)):
