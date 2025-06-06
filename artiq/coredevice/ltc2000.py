@@ -89,22 +89,27 @@ class DDS:
         if shift < 0 or shift > 15:
             raise ValueError("Shift must be between 0 and 15")
 
+        phase_msb = (c0 >> 2) & 0xFFFF   # Upper 16 bits of 18-bit phase value
+        phase_lsb = c0 & 0x3             # Bottom 2 bits of 18-bit phase value
+
         coef_words = [
-            b0 & 0xFFFF,                          # [15:0] amplitude offset
-            b1 & 0xFFFF,                          # [31:16] damp low
-            (b1 >> 16) & 0xFFFF,                  # [47:32] damp high
-            b2 & 0xFFFF,                          # [63:48] ddamp low
-            (b2 >> 16) & 0xFFFF,                  # [79:64] ddamp mid
-            (b2 >> 32) & 0xFFFF,                  # [95:80] ddamp high
-            b3 & 0xFFFF,                          # [111:96] dddamp low
-            (b3 >> 16) & 0xFFFF,                  # [127:112] dddamp mid
-            (b3 >> 32) & 0xFFFF,                  # [143:128] dddamp high
-            c0 & 0xFFFF,                          # [159:144] phase offset
-            c1 & 0xFFFF,                          # [175:160] ftw low
-            (c1 >> 16) & 0xFFFF,                  # [191:176] ftw high
-            c2 & 0xFFFF,                          # [207:192] chirp low
-            (c2 >> 16) & 0xFFFF,                  # [223:208] chirp high
-            shift & 0xF,                          # [239:224] shift (only 4 bits used)
+            b0 & 0xFFFF,                          # Word 0: amplitude offset
+            b1 & 0xFFFF,                          # Word 1: damp low
+            (b1 >> 16) & 0xFFFF,                  # Word 2: damp high
+            b2 & 0xFFFF,                          # Word 3: ddamp low
+            (b2 >> 16) & 0xFFFF,                  # Word 4: ddamp mid
+            (b2 >> 32) & 0xFFFF,                  # Word 5: ddamp high
+            b3 & 0xFFFF,                          # Word 6: dddamp low
+            (b3 >> 16) & 0xFFFF,                  # Word 7: dddamp mid
+            (b3 >> 32) & 0xFFFF,                  # Word 8: dddamp high
+
+            phase_msb,                            # Word 9: phase offset main (16 bits)
+            c1 & 0xFFFF,                          # Word 10: ftw low
+            (c1 >> 16) & 0xFFFF,                  # Word 11: ftw high
+            c2 & 0xFFFF,                          # Word 12: chirp low
+            (c2 >> 16) & 0xFFFF,                  # Word 13: chirp high
+
+            shift | (phase_lsb << 4),             # Word 14: shift[3:0] + phase_lsb[5:4] + reserved[15:6]
         ]
 
         for i in range(len(coef_words)):

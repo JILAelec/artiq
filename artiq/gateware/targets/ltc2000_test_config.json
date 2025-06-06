@@ -209,5 +209,59 @@
       "monotonic": "non_decreasing",
       "check_updates": true
     }
+  },
+  {
+      "name": "18-Bit Phase Resolution Demonstration",
+      "description": "Proves that phase resolution is now 18 bits instead of 4 bits",
+      "cycles": 20,
+      "shift": 0,
+      "coefficients": {
+          "amp": 5000,
+          "damp": 0,
+          "ddamp": 0,
+          "dddamp": 0,
+          "phase_offset": 200000,
+          "ftw": 0,
+          "chirp": 0
+      },
+      "validation": {
+          "check_updates": true,
+          "final_ptw": 200000,
+          "ptw_tolerance": 0
+      }
+  },
+  {
+      "name": "Phase Value Near 16-Bit Boundary",
+      "description": "Test phase value that would overflow 16-bit representation",
+      "cycles": 15,
+      "shift": 0,
+      "coefficients": {
+          "amp": 3000,
+          "damp": 0,
+          "phase_offset": 65540,
+          "ftw": 0,
+          "chirp": 0
+      },
+      "validation": {
+          "check_updates": true,
+          "final_ptw": 65540
+      }
+  },
+  {
+      "name": "Maximum 18-Bit Phase Value",
+      "description": "Test the maximum possible 18-bit phase value",
+      "cycles": 10,
+      "shift": 0,
+      "coefficients": {
+          "amp": 1000,
+          "damp": 0,
+          "phase_offset": 262143,
+          "ftw": 0,
+          "chirp": 0
+      },
+      "validation": {
+          "check_updates": true,
+          "final_ptw": 262143
+      }
   }
 ]

@@ -84,7 +84,6 @@ class LTC2000DDSModule(Module, AutoCSR):
         * 32 bit chirp
     """
 
-    # def __init__(self):
     def __init__(self):
         NPHASES = 12
         self.clear = Signal()
@@ -93,9 +92,15 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.ptw = Signal(18)
         self.amplitude = Signal(16)
         self.gain = Signal(16)
+
         self.shift = Signal(4)
-        self.shift_counter = Signal(16) #need to count to 2**shift - 1
+        self.shift_counter = Signal(16) # Need to count to 2**shift - 1
         self.shift_stb = Signal()
+
+        phase_msb_word = Signal(16)      # Upper 16 bits of 18-bit phase value
+        control_word = Signal(16)        # Packed: shift[3:0] + phase_lsb[5:4] + reserved[15:6]
+        reconstructed_phase = Signal(18)
+
         self.reserved = Signal(12) # for future use
 
         self.i = Endpoint([("data", 240)])
@@ -120,9 +125,9 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.sync += [
             self.ftw.eq(z[1]),
             self.atw.eq(x[0]),
-            self.ptw.eq(z[0]),
+            self.ptw.eq(reconstructed_phase),
 
-            #using shift here as a divider
+            # Using shift here as a divider
             If(self.shift_stb,
                 x[0].eq(x[0] + x[1]),
                 x[1].eq(x[1] + x[2]),
@@ -133,21 +138,30 @@ class LTC2000DDSModule(Module, AutoCSR):
             If(self.i.stb,
                 x[0].eq(0),
                 x[1].eq(0),
-                Cat(x[0][32:],           # amp offset (16 bits)
-                    x[1][16:],           # damp (32 bits)
-                    x[2],                # ddamp (48 bits)
-                    x[3],                # dddamp (48 bits)
-                    z[0][16:],           # phase offset (16 bits)
-                    z[1],                # ftw (32 bits)
-                    z[2],                # chirp (32 bits)
-                    self.shift,          # shift (4 LOWER bits)
-                    self.reserved,       # reserved (12 bits)
+                Cat(x[0][32:],           # amp offset (16 bits) - Word 0
+                    x[1][16:],           # damp (32 bits) - Words 1-2
+                    x[2],                # ddamp (48 bits) - Words 3-5
+                    x[3],                # dddamp (48 bits) - Words 6-8
+                    phase_msb_word,      # phase main (16 bits) - Word 9
+                    z[1],                # ftw (32 bits) - Words 10-11
+                    z[2],                # chirp (32 bits) - Words 12-13
+                    control_word,        # control word (16 bits) - Word 14
                 ).eq(self.i.payload.raw_bits()),
                 self.shift_counter.eq(0),
             )
         ]
 
-        self.comb += self.amplitude.eq(x[0][32:])
+        self.comb += [
+            # Reconstruct 18-bit phase with extension bits in correct position
+            reconstructed_phase.eq(Cat(
+                control_word[5:4],              # Phase extension bits [5:4] become LSBs [1:0]
+                phase_msb_word                  # Main phase bits become MSBs [17:2]
+            )),
+
+            self.shift.eq(control_word[3:0]),   # Shift value in bits [3:0]
+
+            self.amplitude.eq(x[0][32:])
+        ]
 
         self.submodules.dds = DoubleDataRateDDS(NPHASES, 32, 18) # 12 phases at 200 MHz => 2400 MSPS, output updated at 100 MHz
         self.comb += [
@@ -299,9 +313,12 @@ class LTC2000DDSModuleTest(Module):
         self.shift_stb = Signal()
         self.reserved = Signal(12)
 
-        self.i = Endpoint([("data", 240)])  # Updated to 240 bits
+        phase_msb_word = Signal(16)      # Upper 16 bits of 18-bit phase value
+        control_word = Signal(16)        # Packed: shift[3:0] + phase_lsb[5:4] + reserved[15:6]
+        reconstructed_phase = Signal(18)  # The full 18-bit phase value
 
-        # Shift logic
+        self.i = Endpoint([("data", 240)])
+
         self.comb += [
             self.shift_stb.eq((self.shift == 0) |
                              (self.shift_counter == (1 << self.shift) - 1))
@@ -319,14 +336,17 @@ class LTC2000DDSModuleTest(Module):
         z = [Signal(32) for i in range(3)]  # phase, dphase, ddphase
         x = [Signal(48) for i in range(4)]  # amp, damp, ddamp, dddamp
 
-        # Expose signals for testing
         self.z = z
         self.x = x
+
+        self.phase_msb_word = phase_msb_word
+        self.control_word = control_word
+        self.reconstructed_phase = reconstructed_phase
 
         self.sync += [
             self.ftw.eq(z[1]),
             self.atw.eq(x[0]),
-            self.ptw.eq(z[0]),
+            self.ptw.eq(reconstructed_phase),
 
             If(self.shift_stb,
                 x[0].eq(x[0] + x[1]),
@@ -338,22 +358,35 @@ class LTC2000DDSModuleTest(Module):
             If(self.i.stb,
                 x[0].eq(0),
                 x[1].eq(0),
-                # Updated to match new 32-bit damp format
-                Cat(x[0][32:],           # amp offset (16 bits) [15:0]
-                    x[1][16:],           # damp (32 bits) [47:16]
-                    x[2],                # ddamp (48 bits) [95:48]
-                    x[3],                # dddamp (48 bits) [143:96]
-                    z[0][16:],           # phase offset (16 bits) [159:144]
-                    z[1],                # ftw (32 bits) [191:160]
-                    z[2],                # chirp (32 bits) [223:192]
-                    self.reserved,       # reserved (12 bits) [235:224]
-                    self.shift,          # shift (4 bits) [239:236]
+                Cat(x[0][32:],           # amp offset (16 bits) - Word 0
+                    x[1][16:],           # damp (32 bits) - Words 1-2
+                    x[2],                # ddamp (48 bits) - Words 3-5
+                    x[3],                # dddamp (48 bits) - Words 6-8
+                    phase_msb_word,      # phase main (16 bits) - Word 9
+                    z[1],                # ftw (32 bits) - Words 10-11
+                    z[2],                # chirp (32 bits) - Words 12-13
+                    control_word,        # control word (16 bits) - Word 14
                 ).eq(self.i.payload.raw_bits()),
                 self.shift_counter.eq(0),
             )
         ]
 
-        self.comb += self.amplitude.eq(x[0][32:])
+        self.comb += [
+            reconstructed_phase.eq(Cat(
+                control_word[4],
+                control_word[5],
+                phase_msb_word
+            )),
+
+            self.shift.eq(Cat(
+                control_word[0],
+                control_word[1],
+                control_word[2],
+                control_word[3]
+            )),
+
+            self.amplitude.eq(x[0][32:])
+        ]
 
 class TestConfiguration:
     """Class to handle test configuration loading and validation"""
@@ -384,7 +417,6 @@ class TestConfiguration:
         # Validate shift value
         self.shift = max(0, min(15, self.shift))
 
-        # No more 16-bit constraint for damp - now supports full 32-bit range!
         for coeff in ['ddamp', 'dddamp']:  # Only validate 48-bit coefficients
             if coeff in self.coefficients:
                 value = self.coefficients[coeff]
@@ -399,16 +431,23 @@ class TestConfiguration:
 
     def pack_coefficients(self):
         """Pack coefficients into the format expected by the module (240-bit format)"""
+        phase_value = self.coefficients['phase_offset']
+        if phase_value >= (1 << 18) or phase_value < 0:
+            raise ValueError(f"Phase value {phase_value} exceeds 18-bit range [0, {(1<<18)-1}]")
+
+        phase_msb = (phase_value >> 2) & 0xFFFF   # Upper 16 bits of 18-bit phase value
+        phase_lsb = phase_value & 0x3             # Bottom 2 bits of 18-bit phase value
+
         return (
             self.coefficients['amp'] |                          # bits [15:0] (16 bits)
             (self.coefficients['damp'] << 16) |                 # bits [47:16] (32 bits)
             (self.coefficients['ddamp'] << 48) |                # bits [95:48] (48 bits)
             (self.coefficients['dddamp'] << 96) |               # bits [143:96] (48 bits)
-            (self.coefficients['phase_offset'] << 144) |        # bits [159:144] (16 bits)
+            (phase_msb << 144) |                               # bits [159:144] (16 bits)
             (self.coefficients['ftw'] << 160) |                 # bits [191:160] (32 bits)
             (self.coefficients['chirp'] << 192) |               # bits [223:192] (32 bits)
-            (self.coefficients['reserved'] << 224) |            # bits [235:224] (12 bits)
-            (self.shift << 236)                                 # bits [239:236] (4 bits)
+            (self.shift << 224) |                               # bits [227:224] (4 bits)
+            (phase_lsb << 228)                                  # bits [229:228] (2 bits)
         )
 
 class TestResult:
@@ -453,6 +492,25 @@ class TestResult:
             if abs(actual - expected) > tolerance:
                 self.passed = False
                 self.errors.append(f"Final amplitude {actual} != expected {expected} (tolerance: {tolerance})")
+
+        if 'final_ptw' in validation:
+            expected_ptw = validation['final_ptw']
+            actual_ptw = None
+
+            for i in reversed(range(len(self.debug_info))):
+                debug_info = self.debug_info[i]
+                if debug_info and 'ptw' in debug_info:
+                    actual_ptw = debug_info['ptw']
+                    break  # Take the last (most recent) PTW value
+
+            if actual_ptw is not None:
+                tolerance = validation.get('ptw_tolerance', 0)
+                if abs(actual_ptw - expected_ptw) > tolerance:
+                    self.passed = False
+                    self.errors.append(f"Final PTW {actual_ptw} != expected {expected_ptw} (tolerance: {tolerance})")
+            else:
+                self.passed = False
+                self.errors.append("Could not retrieve PTW value for validation")
 
         # Check update intervals
         if 'check_updates' in validation and validation['check_updates']:
@@ -501,7 +559,6 @@ def run_single_test(config, verbose=False):
     """Run a single test with the given configuration"""
 
     def tb_process(dut):
-        # Load coefficients
         packed_data = config.pack_coefficients()
 
         yield dut.i.payload.data.eq(packed_data)
@@ -526,7 +583,6 @@ def run_single_test(config, verbose=False):
         result = TestResult(config)
         output_index = 0
 
-        # Monitor amplitude and internal states
         for cycle in range(total_cycles + 1):
             shift_stb = yield dut.shift_stb
             shift_counter = yield dut.shift_counter
@@ -540,6 +596,9 @@ def run_single_test(config, verbose=False):
 
                 # Capture additional debug info if verbose
                 debug_info = {}
+                debug_info['ftw'] = yield dut.ftw
+                debug_info['atw'] = yield dut.atw
+                debug_info['ptw'] = yield dut.ptw
                 if verbose:
                     debug_info['shift_counter'] = shift_counter
                     debug_info['x0'] = yield dut.x[0]
@@ -549,9 +608,6 @@ def run_single_test(config, verbose=False):
                     debug_info['z0'] = yield dut.z[0]
                     debug_info['z1'] = yield dut.z[1]
                     debug_info['z2'] = yield dut.z[2]
-                    debug_info['ftw'] = yield dut.ftw
-                    debug_info['atw'] = yield dut.atw
-                    debug_info['ptw'] = yield dut.ptw
 
                 result.add_sample(cycle, amplitude, shift_stb, debug_info)
                 output_index += 1
@@ -561,14 +617,12 @@ def run_single_test(config, verbose=False):
 
         return result
 
-    # Run simulation
     dut = LTC2000DDSModuleTest()
 
     def clock():
         for _ in range(config.cycles + 10):
             yield
 
-    # Store result in a way we can access it
     result_container = [None]
 
     def wrapper_tb(dut):
@@ -657,14 +711,13 @@ def print_test_report(result, verbose=False):
             expected_interval = config.get_update_interval()
 
             print(f"Expected interval: {expected_interval}")
-            print(f"Actual intervals: {intervals[:10]}{'...' if len(intervals) > 10 else ''}")  # Show first 10
+            print(f"Actual intervals: {intervals[:10]}{'...' if len(intervals) > 10 else ''}")
             print(f"All intervals correct: {all(interval == expected_interval for interval in intervals)}")
 
-            # Show where intervals are wrong
             wrong_count = 0
             for i, interval in enumerate(intervals):
                 if interval != expected_interval:
-                    if wrong_count < 5:  # Limit to first 5 errors
+                    if wrong_count < 5:
                         print(f"  Wrong interval at update {i+1}: {interval} (should be {expected_interval})")
                     wrong_count += 1
             if wrong_count > 5:
@@ -695,11 +748,9 @@ def save_csv_report(results, filename):
     with open(filename, 'w', newline='') as csvfile:
         writer = csv.writer(csvfile)
 
-        # Write header
         writer.writerow(['Test_Name', 'Cycle', 'Amplitude_Hex', 'Amplitude_Dec', 'Updated',
                         'Shift', 'Update_Interval', 'Passed', 'Errors'])
 
-        # Write data for each test
         for result in results:
             config = result.config
             for i, (cycle, amp, updated) in enumerate(zip(result.cycles, result.amplitudes, result.updates)):
@@ -834,7 +885,6 @@ def run_test_suite(config_filename="ltc2000_test_config.json"):
         create_sample_config()
         return
 
-    # Load configurations
     configs = load_test_configs(config_filename)
     if not configs:
         print("No valid test configurations found.")
@@ -855,7 +905,6 @@ def run_test_suite(config_filename="ltc2000_test_config.json"):
         if not result.passed:
             failed_configs.append(config)
 
-    # Print summary
     print(f"\n{'='*60}")
     print("TEST SUITE SUMMARY")
     print(f"{'='*60}")
