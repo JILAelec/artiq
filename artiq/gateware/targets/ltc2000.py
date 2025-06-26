@@ -22,6 +22,10 @@ class CoefficientProcessor(Module):
 
         self.i = Endpoint([("data", 240)])
 
+        self.uart_data = Signal(240)  # Direct 240-bit input from UART
+        self.uart_stb = Signal()      # UART write strobe
+        self.uart_ack = Signal()      # UART acknowledge
+
         self.z = [Signal(32) for i in range(3)]
         self.x = [Signal(48) for i in range(4)]
 
@@ -71,7 +75,24 @@ class CoefficientProcessor(Module):
                     self.control_word,        # control word (16 bits) - Word 14
                 ).eq(self.i.payload.raw_bits()),
                 self.shift_counter.eq(0),
+            ).Elif(self.uart_stb,
+                self.x[0].eq(0),
+                self.x[1].eq(0),
+                Cat(self.x[0][32:],           # amp offset (16 bits) - Word 0
+                    self.x[1][16:],           # damp (32 bits) - Words 1-2
+                    self.x[2],                # ddamp (48 bits) - Words 3-5
+                    self.x[3],                # dddamp (48 bits) - Words 6-8
+                    self.phase_msb_word,      # phase main (16 bits) - Word 9
+                    self.z[1],                # ftw (32 bits) - Words 10-11
+                    self.z[2],                # chirp (32 bits) - Words 12-13
+                    self.control_word,        # control word (16 bits) - Word 14
+                ).eq(self.uart_data),
+                self.shift_counter.eq(0),
             )
+        ]
+
+        self.sync += [
+            self.uart_ack.eq(self.uart_stb)
         ]
 
         self.comb += [
@@ -177,7 +198,7 @@ class LTC2000DDSModule(Module, AutoCSR):
 
         self.submodules.coeff_proc = CoefficientProcessor()
 
-        self.comb += [
+        self.sync += [
             self.coeff_proc.clear.eq(self.clear),
             self.coeff_proc.i.connect(self.i)
         ]
