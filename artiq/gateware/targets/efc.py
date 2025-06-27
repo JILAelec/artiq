@@ -283,6 +283,10 @@ class Satellite(BaseSoC, AMPSoC):
 
             self.submodules.ltc2000_dds = LTC2000(self.platform, ltc2000_pads)
 
+            for phy in self.ltc2000_dds.phys:
+                print("LTC2000 {} at RTIO channel 0x{:06x}".format(phy.name, len(self.rtio_channels)))
+                self.rtio_channels.append(rtio.Channel.from_phy(phy))
+
             self.submodules.eem1_uart_coeff = EEM1UARTCoefficientInterface(
                 self.platform, rtio_clk_freq, num_dds=4)
             self.csr_devices.append("eem1_uart_coeff")
