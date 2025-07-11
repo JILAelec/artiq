@@ -154,11 +154,17 @@ class LTC2000DDSModule(Module, AutoCSR):
         self.comb += [
             # Reconstruct 18-bit phase with extension bits in correct position
             reconstructed_phase.eq(Cat(
-                control_word[5:4],              # Phase extension bits [5:4] become LSBs [1:0]
+                control_word[4],
+                control_word[5],
                 phase_msb_word                  # Main phase bits become MSBs [17:2]
             )),
 
-            self.shift.eq(control_word[3:0]),   # Shift value in bits [3:0]
+            self.shift.eq(Cat(
+                control_word[0],
+                control_word[1],
+                control_word[2],
+                control_word[3]
+            )),
 
             self.amplitude.eq(x[0][32:])
         ]
